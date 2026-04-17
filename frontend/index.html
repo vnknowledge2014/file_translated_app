@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Hệ thống dịch tài liệu Nhật-Việt tự động sử dụng AI">
+    <title>JP→VI | Dịch Tài Liệu Tự Động</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0f1c;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.8);
+            --bg-glass: rgba(255, 255, 255, 0.03);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-rose: #f43f5e;
+            --gradient-primary: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            --gradient-header: linear-gradient(135deg, #1e3a5f, #2d1b4e);
+            --shadow-glow: 0 0 30px rgba(59, 130, 246, 0.15);
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Animated Background ── */
+        .bg-gradient {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background:
+                radial-gradient(ellipse 800px 600px at 20% 20%, rgba(59, 130, 246, 0.08), transparent 60%),
+                radial-gradient(ellipse 600px 500px at 80% 80%, rgba(139, 92, 246, 0.08), transparent 60%),
+                radial-gradient(ellipse 400px 300px at 50% 50%, rgba(6, 182, 212, 0.04), transparent 60%);
+            animation: bgPulse 15s ease-in-out infinite alternate;
+        }
+
+        @keyframes bgPulse {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* ── Layout ── */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        /* ── Header ── */
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .header-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 16px;
+            border-radius: 100px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            font-size: 12px;
+            color: var(--accent-cyan);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .header-badge .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent-emerald);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
+        /* ── Upload Zone ── */
+        .upload-zone {
+            position: relative;
+            background: var(--bg-card);
+            border: 2px dashed var(--border-glass);
+            border-radius: var(--radius);
+            padding: 60px 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(12px);
+            overflow: hidden;
+        }
+
+        .upload-zone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: var(--radius);
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--accent-blue);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .upload-zone:hover::before {
+            opacity: 0.04;
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--accent-purple);
+            transform: scale(1.01);
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            margin-bottom: 16px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .upload-zone h3 {
+            font-size: 1.2rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .upload-zone p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .file-types {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .file-type-badge {
+            padding: 4px 12px;
+            border-radius: 100px;
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent-blue);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── Job Card ── */
+        .job-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-top: 24px;
+            backdrop-filter: blur(12px);
+            animation: slideIn 0.4s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .job-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .job-filename {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .status-badge {
+            padding: 4px 14px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .status-pending { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+        .status-planning { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .status-extracting { background: rgba(139, 92, 246, 0.15); color: var(--accent-purple); }
+        .status-translating { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+        .status-reconstructing { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+        .status-completed { background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); }
+        .status-failed { background: rgba(244, 63, 94, 0.15); color: var(--accent-rose); }
+
+        /* ── Progress Bar ── */
+        .progress-container {
+            margin: 16px 0;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 100px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient-primary);
+            border-radius: 100px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            right: 0; top: 0;
+            width: 30px; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { opacity: 0; }
+            50% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* ── Phase Steps ── */
+        .phase-steps {
+            display: flex;
+            gap: 4px;
+            margin: 16px 0;
+        }
+
+        .phase-step {
+            flex: 1;
+            height: 4px;
+            border-radius: 100px;
+            background: rgba(255, 255, 255, 0.06);
+            transition: all 0.3s;
+        }
+
+        .phase-step.active { background: var(--accent-blue); }
+        .phase-step.done { background: var(--accent-emerald); }
+
+        .phase-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .phase-labels span.active { color: var(--accent-blue); }
+        .phase-labels span.done { color: var(--accent-emerald); }
+
+        /* ── Download Button ── */
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            border-radius: var(--radius-sm);
+            background: var(--gradient-primary);
+            color: white;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: none;
+            cursor: pointer;
+            margin-top: 16px;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+
+        /* ── Message ── */
+        .message {
+            font-size: 0.85rem;
+            margin-top: 8px;
+            color: var(--text-secondary);
+        }
+
+        .error { color: var(--accent-rose); }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            margin-top: 60px;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+        #file-input { display: none; }
+    </style>
+</head>
+<body>
+    <div class="bg-gradient"></div>
+    <div class="container">
+        <header class="header">
+            <div class="header-badge">
+                <span class="dot"></span>
+                Air-Gapped Translation Engine
+            </div>
+            <h1>JP → VI</h1>
+            <p>Dịch tài liệu Nhật → Việt tự động với AI</p>
+        </header>
+
+        <div class="upload-zone" id="upload-zone">
+            <div class="upload-icon">📄</div>
+            <h3>Kéo thả file hoặc nhấn để chọn</h3>
+            <p>Hỗ trợ các định dạng tài liệu phổ biến</p>
+            <div class="file-types">
+                <span class="file-type-badge">DOCX</span>
+                <span class="file-type-badge">XLSX</span>
+                <span class="file-type-badge">PPTX</span>
+                <span class="file-type-badge">PDF</span>
+                <span class="file-type-badge">CSV</span>
+                <span class="file-type-badge">TXT</span>
+                <span class="file-type-badge">MD</span>
+            </div>
+            <input type="file" id="file-input" accept=".docx,.xlsx,.pptx,.pdf,.csv,.txt,.md">
+        </div>
+
+        <div id="jobs-container"></div>
+
+        <footer class="footer">
+            Powered by gemma4 + translategemma • Air-Gapped System
+        </footer>
+    </div>
+
+    <script>
+    const API_BASE = '';
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    const jobsContainer = document.getElementById('jobs-container');
+
+    const PHASES = ['planning', 'extracting', 'translating', 'reconstructing', 'verifying'];
+
+    // ── Drag & Drop ──
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) uploadFile(fileInput.files[0]);
+    });
+
+    // ── Upload ──
+    async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+
+            addJobCard(data.job_id, data.filename, data.file_type);
+            pollJobStatus(data.job_id);
+        } catch (e) {
+            showError('Upload thất bại: ' + e.message);
+        }
+    }
+
+    // ── Job Card ──
+    function addJobCard(jobId, filename, fileType) {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.id = `job-${jobId}`;
+        card.innerHTML = `
+            <div class="job-header">
+                <span class="job-filename">📄 ${filename}</span>
+                <span class="status-badge status-pending" id="status-${jobId}">PENDING</span>
+            </div>
+            <div class="phase-steps">
+                ${PHASES.map(p => `<div class="phase-step" id="phase-${jobId}-${p}"></div>`).join('')}
+            </div>
+            <div class="phase-labels">
+                ${PHASES.map(p => `<span id="label-${jobId}-${p}">${p}</span>`).join('')}
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-${jobId}" style="width: 0%"></div>
+                </div>
+                <div class="progress-info">
+                    <span id="msg-${jobId}">Đang chờ xử lý...</span>
+                    <span id="pct-${jobId}">0%</span>
+                </div>
+            </div>
+            <div id="actions-${jobId}"></div>
+        `;
+        jobsContainer.prepend(card);
+    }
+
+    function updateJobCard(jobId, status, progress, message) {
+        const statusEl = document.getElementById(`status-${jobId}`);
+        const progressEl = document.getElementById(`progress-${jobId}`);
+        const msgEl = document.getElementById(`msg-${jobId}`);
+        const pctEl = document.getElementById(`pct-${jobId}`);
+
+        if (statusEl) {
+            statusEl.textContent = status.toUpperCase();
+            statusEl.className = `status-badge status-${status}`;
+        }
+
+        if (progressEl) {
+            progressEl.style.width = `${Math.round(progress * 100)}%`;
+        }
+
+        if (msgEl) msgEl.textContent = message;
+        if (pctEl) pctEl.textContent = `${Math.round(progress * 100)}%`;
+
+        // Update phase steps
+        const phaseIndex = PHASES.indexOf(status);
+        PHASES.forEach((p, i) => {
+            const stepEl = document.getElementById(`phase-${jobId}-${p}`);
+            const labelEl = document.getElementById(`label-${jobId}-${p}`);
+            if (stepEl) {
+                stepEl.className = 'phase-step';
+                if (i < phaseIndex) stepEl.classList.add('done');
+                else if (i === phaseIndex) stepEl.classList.add('active');
+            }
+            if (labelEl) {
+                labelEl.className = '';
+                if (i < phaseIndex) labelEl.classList.add('done');
+                else if (i === phaseIndex) labelEl.classList.add('active');
+            }
+        });
+
+        if (status === 'completed') {
+            const actionsEl = document.getElementById(`actions-${jobId}`);
+            if (actionsEl) {
+                actionsEl.innerHTML = `
+                    <a class="download-btn" href="${API_BASE}/api/download/${jobId}">
+                        ⬇️ Tải file đã dịch
+                    </a>
+                `;
+            }
+        }
+    }
+
+    // ── Poll ──
+    async function pollJobStatus(jobId) {
+        const interval = setInterval(async () => {
+            try {
+                const resp = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+                const data = await resp.json();
+
+                const progress = data.progress ?? estimateProgress(data.status);
+                const message = data.progress_message || `${data.status}...`;
+                updateJobCard(jobId, data.status, progress, message);
+
+                if (data.status === 'completed' || data.status === 'failed') {
+                    clearInterval(interval);
+                    if (data.status === 'completed') {
+                        updateJobCard(jobId, 'completed', 1.0,
+                            `Hoàn thành! ${data.segments_count || 0} đoạn, ${(data.duration_seconds || 0).toFixed(1)}s`
+                        );
+                    } else {
+                        updateJobCard(jobId, 'failed', 0, data.error_message || 'Lỗi không xác định');
+                    }
+                }
+            } catch (e) {
+                console.error('Poll error:', e);
+            }
+        }, 2000);
+    }
+
+    function estimateProgress(status) {
+        const map = { pending: 0.05, planning: 0.15, extracting: 0.35, translating: 0.6, reconstructing: 0.85, verifying: 0.95, completed: 1.0, failed: 0 };
+        return map[status] || 0;
+    }
+
+    function showError(msg) {
+        const div = document.createElement('div');
+        div.className = 'job-card';
+        div.innerHTML = `<p class="message error">❌ ${msg}</p>`;
+        jobsContainer.prepend(div);
+        setTimeout(() => div.remove(), 5000);
+    }
+
+    // ── Auto-load active jobs on page load ──
+    async function loadActiveJobs() {
+        try {
+            const resp = await fetch(`${API_BASE}/api/jobs`);
+            const jobs = await resp.json();
+
+            for (const job of jobs) {
+                addJobCard(job.id, job.filename, job.file_type);
+
+                const progress = job.progress ?? estimateProgress(job.status);
+                const message = job.status === 'completed'
+                    ? `Hoàn thành! ${job.segments_count || 0} đoạn, ${(job.duration_seconds || 0).toFixed(1)}s`
+                    : job.status === 'failed'
+                    ? (job.error_message || 'Lỗi không xác định')
+                    : (job.progress_message || `${job.status}...`);
+
+                updateJobCard(job.id, job.status, progress, message);
+
+                // Resume polling for active jobs
+                const activeStatuses = ['pending', 'planning', 'extracting', 'translating', 'reconstructing', 'verifying'];
+                if (activeStatuses.includes(job.status)) {
+                    pollJobStatus(job.id);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load active jobs:', e);
+        }
+    }
+
+    // Load on page ready
+    loadActiveJobs();
+    </script>
+</body>
+</html>

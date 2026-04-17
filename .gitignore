@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+vendor/
+target/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build output
+dist/
+build/
+.next/
+
+# Runtime data (keep dirs via .gitkeep)
+data/uploads/*
+data/output/*
+data/db/*
+data/temp/
+data/debug_images/
+data/eval_output/
+!data/**/.gitkeep
+
+# SQLite databases
+*.db
+!data/db/.gitkeep
+
+# Sample files (large demo documents)
+samples/
+
+# Test artifacts
+test_outputs/
+
+# Omni runtime
+.agent/
+.omni/
+.omni.pid
+.omni.log
+AGENTS.md
+omni.config.yaml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Office temp files
+~$*
