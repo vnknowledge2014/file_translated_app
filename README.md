@@ -223,4 +223,4 @@ Bạn có thể tự do sử dụng, học tập và sửa đổi. Tuy nhiên, n
 **2. Sử dụng Thương mại (Trả phí):**
 Nếu bạn là doanh nghiệp muốn sử dụng dự án này trong các sản phẩm thương mại, phần mềm mã nguồn đóng (closed-source), và **KHÔNG** muốn chia sẻ mã nguồn sản phẩm của mình ra công chúng, bạn cần mua một Giấy phép Thương mại.
 
-Vui lòng liên hệ với tôi qua: `[Email/LinkedIn của bạn]` để trao đổi chi tiết.
+Vui lòng liên hệ với tôi qua: `vnknowledge2014@gmail.com` để trao đổi chi tiết.
