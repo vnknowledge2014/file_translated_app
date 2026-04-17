@@ -169,12 +169,15 @@ def extract_docx(file_path: str) -> list[dict]:
 
                     full_text = "".join(runs).strip()
                     if full_text and _is_translatable(full_text):
-                        # Split long paragraphs at sentence boundaries so the
-                        # LLM never receives a single >400-char segment,
-                        # which can cause Ollama to hang indefinitely.
-                        segments.extend(
-                            _split_long_segment(full_text, f"{filename}:p[{p_idx}]", "body")
-                        )
+                        # OOXML segments must NOT be split because splitting
+                        # breaks tag pairs across chunks, making reconstruction
+                        # impossible.  The translator handles long segments via
+                        # tag stripping (>8 tags → translate as plain text).
+                        segments.append({
+                            "text": full_text,
+                            "location": f"{filename}:p[{p_idx}]",
+                            "type": "body",
+                        })
             except ET.ParseError:
                 pass
 

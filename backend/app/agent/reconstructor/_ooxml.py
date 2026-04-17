@@ -27,7 +27,7 @@ NS = {
 
 
 def register_namespaces():
-    """Register all OOXML namespaces globally to prevent ns0/ns1 junk."""
+    """Register known OOXML namespaces globally to prevent ns0/ns1 junk."""
     ET.register_namespace('', NS['main'])
     ET.register_namespace('w', NS['w'])
     ET.register_namespace('a', NS['a'])
@@ -39,7 +39,36 @@ def register_namespaces():
     ET.register_namespace('a16', NS['a16'])
 
 
-# Register on import
+def register_document_namespaces(buffer: bytes) -> None:
+    """Dynamically register ALL xmlns declarations found in an XML buffer.
+
+    Python's ET generates ns0/ns1/ns2 prefixes for any namespace not
+    registered via ET.register_namespace(). OOXML files (especially PPTX)
+    often declare many namespaces beyond our known set (p14, dc, cp, vt, etc.).
+    If ET mangles these to ns0/ns1, Office apps report the file as corrupted.
+
+    This function scans the raw XML for xmlns declarations and registers
+    each one BEFORE parsing, ensuring ET preserves the original prefixes.
+    """
+    raw = buffer.decode('utf-8', errors='replace') if isinstance(buffer, bytes) else buffer
+
+    # Register prefixed namespaces: xmlns:prefix="uri"
+    for prefix, uri in re.findall(r'xmlns:(\w+)="([^"]+)"', raw):
+        try:
+            ET.register_namespace(prefix, uri)
+        except ValueError:
+            pass  # Some URIs may be invalid — skip gracefully
+
+    # Register default namespace: xmlns="uri"
+    default_ns = re.search(r'\bxmlns="([^"]+)"', raw)
+    if default_ns:
+        try:
+            ET.register_namespace('', default_ns.group(1))
+        except ValueError:
+            pass
+
+
+# Register known namespaces on import
 register_namespaces()
 
 
@@ -141,6 +170,9 @@ def replace_paragraph_runs(
     """
     from ._common import replace_in_text
 
+    # Same pattern used by extractor to skip footnote/citation markers
+    footnote_pat = re.compile(r'^\[\d+\]$')
+
     replaced = 0
 
     for p in root.iter(para_tag):
@@ -157,18 +189,26 @@ def replace_paragraph_runs(
                     replaced += 1
             continue
 
-        # Aggregate runs with <tagX> markers
+        # Aggregate runs with <tagX> markers, skipping footnote runs
+        # to match extractor behavior (consistent tag numbering).
         agg_runs = []
+        agg_run_elements = []     # runs contributing to tagged text
+        footnote_runs = []        # footnote runs to preserve as-is
         tag_idx = 1
         for r in runs:
             t_node = r.find(t_tag)
             if t_node is not None and t_node.text:
+                # Skip footnote markers [1], [2] etc.
+                if footnote_pat.match(t_node.text.strip()):
+                    footnote_runs.append(r)
+                    continue
                 rpr = r.find(f'{ns_key}:rPr', NS)
                 if rpr is not None:
                     agg_runs.append(f"<tag{tag_idx}>{t_node.text}</tag{tag_idx}>")
                     tag_idx += 1
                 else:
                     agg_runs.append(t_node.text)
+                agg_run_elements.append(r)
 
         full_text = "".join(agg_runs).strip()
         if not full_text:
@@ -176,17 +216,17 @@ def replace_paragraph_runs(
 
         trans = replace_in_text(full_text, tmap)
         if trans:
-            new_runs = deserialize_tags_to_xml(trans, runs, ns_key)
+            new_runs = deserialize_tags_to_xml(trans, agg_run_elements, ns_key)
             # Find insertion index (before endParaRPr)
             p_children = list(p)
             insert_idx = len(p_children)
-            for r in runs:
+            for r in agg_run_elements:
                 try:
                     insert_idx = min(insert_idx, p_children.index(r))
                 except ValueError:
                     pass
-            # Remove old runs
-            for r in runs:
+            # Remove only the aggregated runs (not footnote runs)
+            for r in agg_run_elements:
                 p.remove(r)
             # Insert new runs at original position
             for i, nr in enumerate(new_runs):

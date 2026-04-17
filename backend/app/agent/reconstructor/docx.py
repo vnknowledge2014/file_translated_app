@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._common import build_translation_map
-from ._ooxml import NS, preserve_xml_declaration, replace_paragraph_runs
+from ._ooxml import NS, preserve_xml_declaration, register_document_namespaces, replace_paragraph_runs
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ def reconstruct_docx(file_path: str, segments: list[dict], output_path: str) -> 
             # Process all DOCX XML files that may contain text
             if _is_docx_xml(item.filename):
                 try:
+                    register_document_namespaces(buffer)
                     root = ET.fromstring(buffer)
                     para_tag = f"{{{NS['w']}}}p"
                     r_tag = f"{{{NS['w']}}}r"

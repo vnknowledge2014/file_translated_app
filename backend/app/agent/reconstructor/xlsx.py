@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._common import build_translation_map, replace_in_text
-from ._ooxml import NS, preserve_xml_declaration, replace_paragraph_runs
+from ._ooxml import NS, preserve_xml_declaration, register_document_namespaces, replace_paragraph_runs
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +395,7 @@ def reconstruct_xlsx(
             # ── XML text replacement (sharedStrings, inline strings, drawings) ──
             if is_shared_strings or (is_worksheet and b'inlineStr' in buffer) or is_drawing:
                 try:
+                    register_document_namespaces(buffer)
                     root = ET.fromstring(buffer)
 
                     if is_shared_strings:

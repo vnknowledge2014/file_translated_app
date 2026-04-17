@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._common import build_translation_map
-from ._ooxml import NS, preserve_xml_declaration, replace_paragraph_runs
+from ._ooxml import NS, preserve_xml_declaration, register_document_namespaces, replace_paragraph_runs
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ def reconstruct_pptx(file_path: str, segments: list[dict], output_path: str) -> 
             # Process all PPTX XML files that may contain text
             if _is_pptx_xml(item.filename):
                 try:
+                    register_document_namespaces(buffer)
                     root = ET.fromstring(buffer)
 
                     # Process paragraphs in slides/layouts/masters

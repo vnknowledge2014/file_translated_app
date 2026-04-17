@@ -325,7 +325,7 @@ class Translator:
         # These always fail tag validation and waste RALPH retries,
         # leaving the paragraph completely untranslated.
         for seg in to_translate:
-            tag_count = len(re.findall(r'<tag\d+>', seg["text"]))
+            tag_count = len(re.findall(r'</?tag\d+>', seg["text"]))
             if tag_count > _MAX_INLINE_TAGS:
                 seg["_original_tagged_text"] = seg["text"]
                 seg["text"] = re.sub(r'</?tag\d+>', '', seg["text"])
