@@ -212,15 +212,15 @@ mvp_jp_vi/
 | Glossary injection | User-defined `GlossaryTerm` table injected into system prompt as mandatory translation table |
 | Count mismatch fallback | Auto-retries 1-by-1 if batch `|||`-delimited response has wrong segment count |
 
-## License / Giấy phép
+## License
 
-Dự án này áp dụng chiến lược **Cấp phép kép (Dual-licensing)**.
+This project applies a **Dual-licensing** strategy.
 
-**1. Sử dụng Mã nguồn mở (Miễn phí):**
-Mã nguồn này được cấp phép theo [GNU AGPL v3.0](LICENSE). 
-Bạn có thể tự do sử dụng, học tập và sửa đổi. Tuy nhiên, nếu bạn phân phối phần mềm có chứa mã nguồn này, hoặc cung cấp nó như một dịch vụ qua mạng, bạn **bắt buộc** phải công khai toàn bộ mã nguồn sản phẩm của bạn theo đúng điều khoản của AGPL v3.0.
+**1. Open Source Use (Free):**
+This source code is licensed under the [GNU AGPL v3.0](LICENSE). 
+You are free to use, learn from, and modify it. However, if you distribute software that includes this source code, or provide it as a network service, you **must** release your product's entire source code to the public under the exact terms of the AGPL v3.0.
 
-**2. Sử dụng Thương mại (Trả phí):**
-Nếu bạn là doanh nghiệp muốn sử dụng dự án này trong các sản phẩm thương mại, phần mềm mã nguồn đóng (closed-source), và **KHÔNG** muốn chia sẻ mã nguồn sản phẩm của mình ra công chúng, bạn cần mua một Giấy phép Thương mại.
+**2. Commercial Use (Paid):**
+If you are a business looking to use this project in commercial, closed-source products, and you **DO NOT** wish to share your product's source code publicly, you must purchase a Commercial License.
 
-Vui lòng liên hệ với tôi qua: `vnknowledge2014@gmail.com` để trao đổi chi tiết.
+Please contact me via: `vnknowledge2014@gmail.com` for more details.
