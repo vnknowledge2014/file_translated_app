@@ -185,7 +185,7 @@ class TestExtractXlsx:
             sheet_segs = [s for s in segs if s["type"] == "sheet_name"]
             assert len(sheet_segs) == 1
             assert sheet_segs[0]["text"] == "API作成_スケジュール"
-            assert sheet_segs[0]["location"] == "sheet_name:API作成_スケジュール"
+            assert sheet_segs[0]["location"] == "xl/workbook.xml:sheet[0]"
 
 
 class TestExtractPptx:

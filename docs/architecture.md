@@ -19,7 +19,7 @@
 │                  │ ┌─ SQLite ─┐ │                        │
 │                  │ │ jobs     │ │                        │
 │                  │ │ glossary │ │                        │
-│                  │ │ cache    │ │  translation_cache.db  │
+│                  │ │ cache    │ │  translations.db       │
 │                  │ └──────────┘ │                        │
 │                  └──────────────┘                        │
 │                                                          │
@@ -31,19 +31,11 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Environment Variables (Docker Compose defaults)
+### Configuration
 
-| Variable | Default | Description |
-|:---------|:--------|:------------|
-| `OLLAMA_URL` | `http://ollama:11434` | Ollama API endpoint |
-| `MODEL` | `gemma4:e4b` | Translation LLM model |
-| `DATABASE_URL` | `sqlite:///data/db/translations.db` | Job tracking database |
-| `UPLOAD_DIR` | `/data/uploads` | Uploaded source documents |
-| `OUTPUT_DIR` | `/data/output` | Translated output files |
-| `TEMP_DIR` | `/data/temp` | Temporary files directory |
-| `MAX_WORKERS` | `1` | Background worker count |
-| `MAX_CONCURRENT_BATCHES` | `2` | Parallel translation batches |
-| `OLLAMA_TIMEOUT` | `1800` | Ollama request timeout (seconds) |
+All settings are loaded from `.env` file and environment variables via a custom loader in `config.py` (no `python-dotenv` dependency). Priority: **env vars > `.env` file > defaults**.
+
+See `README.md` → Configuration section for the full settings table.
 
 ---
 
@@ -55,7 +47,7 @@ Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──
                No wrapper     originals      gemma4:e4b      validated       No corruption
                                                │
                                          cache lookup
-                                      (translation_cache.db)
+                                      (translations.db)
 ```
 
 ### Phase 1: EXTRACT (Deterministic)
@@ -71,14 +63,17 @@ Each file type has a dedicated extractor that walks every text-bearing node:
 
 **Japanese Detection**: Every text node passes through `has_japanese()` which checks Unicode ranges (Hiragana, Katakana, CJK Unified Ideographs, fullwidth digits/latin, halfwidth katakana). Known JP visual symbols (・〇△ー etc.) are stripped before detection to avoid false positives from retained bullet markers.
 
-**Long Segment Splitting**: Paragraphs exceeding 400 characters are split at sentence boundaries (。！？) to prevent LLM timeout on oversized inputs.
+**Tag Stripping & Long Segment Splitting** (in extractor, not translator):
+- Paragraphs with >8 inline tags (`MAX_INLINE_TAGS`) are stripped of tags for plain-text translation — LLM reliably handles ≤8 tags but consistently fails tag validation at >8.
+- Stripped paragraphs and paragraphs exceeding 400 characters (`MAX_SEGMENT_CHARS`) are split at sentence boundaries (。！？) to prevent LLM timeout.
+- Both thresholds are configurable via `.env`.
 
 **Output**: `list[dict]` — each segment has `text`, `location`, `type`.
 
 ### Phase 2: TRANSLATE (LLM)
 
 ```
-segments[] ──→ chunk_segments(max_chars=3000, max_segs=5)
+segments[] ──→ chunk_segments(max_chars=BATCH_MAX_CHARS, max_segs=BATCH_MAX_SEGMENTS)
                     │
                     ▼
               batches[] ──→ asyncio.gather (semaphore=MAX_CONCURRENT_BATCHES)
@@ -88,14 +83,14 @@ segments[] ──→ chunk_segments(max_chars=3000, max_segs=5)
                translate_batch() × N concurrent
                     │
                     ▼
-              cache lookup (translation_cache.db)
+              cache lookup (translations.db)
               ├─ hit  → return cached translation
               └─ miss → build prompt + call Ollama
                     │
                     ▼
               "text_A|||text_B|||text_C"  ──→  Ollama /api/generate
-                    │
-                    ▼
+                    │                          temperature=TRANSLATION_TEMPERATURE
+                    ▼                          num_ctx=TRANSLATION_NUM_CTX
               "dịch_A|||dịch_B|||dịch_C"  ──→  split("|||")
                     │
                     ├─ JP leak check (CJK chars in output?) ── fail ──→ 1-by-1 retry
@@ -104,12 +99,12 @@ segments[] ──→ chunk_segments(max_chars=3000, max_segs=5)
                     └─ count mismatch → fallback to 1-by-1
 ```
 
-**Translation Cache**: SQLite database (`translation_cache.db`) maps source text → target text. Before calling Ollama, each segment is checked against the cache. Cache hits skip the LLM call entirely, reducing latency and cost. Only clean translations (no JP leaks, valid tags) are cached.
+**Translation Cache**: SQLite database (`translations.db`) maps source text → target text. Before calling Ollama, each segment is checked against the cache. Cache hits skip the LLM call entirely, reducing latency and cost. Only clean translations (no JP leaks, valid tags) are cached.
 
 **Performance**: Parallel batches with `asyncio.Semaphore(MAX_CONCURRENT_BATCHES)`.
 Ollama configured with `OLLAMA_NUM_PARALLEL=4` and `OLLAMA_KEEP_ALIVE=24h`.
 
-**RALPH Loop (Retry After Lost Prompt Hallucination)**: When a batch translation fails tag validation or count matching, segments are retried 1-by-1 with cumulative warning messages appended to the system prompt. Max 2 attempts per segment. On final failure, the best-effort output is used (not cached).
+**RALPH Loop (Retry After Lost Prompt Hallucination)**: When a batch translation fails tag validation or count matching, segments are retried 1-by-1 with cumulative warning messages appended to the system prompt. Max attempts configurable via `TRANSLATION_MAX_RETRIES` (default: 3). Retry temperature is reduced by 0.1 from the configured temperature. On final failure, the best-effort output is used (not cached).
 
 **Per-file-type Context Hints**: The system prompt is extended with format-specific guidance:
 - `docx`: Heading → concise, body → natural, table cells → short labels
@@ -122,12 +117,11 @@ Ollama configured with `OLLAMA_NUM_PARALLEL=4` and `OLLAMA_KEEP_ALIVE=24h`.
 
 | File Type | Strategy |
 |:----------|:---------|
-| DOCX / PPTX | Non-destructive `zipfile` stream clone. Deserializes `<tagX>` into inline XML runs `<r><rPr>...</rPr><t>...`. Skips modifying pure binary/calc files guaranteeing 100% structural fidelity. XML namespace declarations and declaration headers are preserved via `preserve_xml_declaration()`. |
-| XLSX | **Byte-level surgery** (not ET parse/serialize to avoid namespace corruption). Multi-layer approach: (1) `workbook.xml` — regex replaces `<sheet name="...">` only, preserving all namespace prefixes; sheet names sanitized (31-char limit, forbidden chars stripped, collision-free); (2) worksheet `<f>` formulas — sheet name refs updated, `[N]Sheet!` external refs left intact; (3) `<definedName>` — internal sheet refs updated; (4) drawings + charts — sheet name refs in series formulas and hyperlinks patched; (5) **phonetic annotations** (`<rPh>`, `<phoneticPr>`) stripped from `sharedStrings.xml` (furigana indices become invalid after translation); (6) **Japanese font patching** — MS Gothic, Meiryo etc. replaced with Arial/Times New Roman in `styles.xml`, `theme1.xml`, `sharedStrings.xml`, and drawings; (7) **stale cached `<v>` values** containing Japanese text are stripped from formula cells; (8) `calcChain.xml` **dropped entirely** to force Excel recalculation (`fullCalcOnLoad=1` injected). Worksheets without `inlineStr` are passed through byte-for-byte. |
+| DOCX / PPTX | Non-destructive `zipfile` stream clone. Deserializes `<tagX>` into inline XML runs `<r><rPr>...</rPr><t>...`. Skips modifying pure binary/calc files guaranteeing 100% structural fidelity. XML namespace declarations and declaration headers are preserved via `preserve_xml_declaration()`. Word boundary spacing fixed via `_fix_run_boundaries()`. |
+| XLSX | **Multi-strategy approach**: (1) `workbook.xml` — regex replaces `<sheet name="...">` only, preserving all namespace prefixes; sheet names sanitized (31-char limit, forbidden chars stripped, collision-free); (2) worksheet `<f>` formulas — sheet name refs updated, `[N]Sheet!` external refs left intact; (3) `<definedName>` — internal sheet refs updated; (4) **drawings + charts** — ET parse with direct `ET.tostring()` serialization (bypasses `preserve_xml_declaration` to preserve inline xmlns for `mc:`, `a14:`, `a16:` namespaces); (5) **sharedStrings** — ET parse with full phonetic stripping (`_strip_all_phonetics`); (6) **Japanese font patching** — MS Gothic, Meiryo etc. replaced with Arial/Times New Roman; (7) **stale cached `<v>` values** stripped from formula cells; (8) `calcChain.xml` **dropped** with references cleaned from `[Content_Types].xml` and `workbook.xml.rels`. |
 | TXT/MD | Read lines → for each segment find line by index → replace. Markdown prefixes (`#`, `-`, `>`) preserved; LLM-hallucinated duplicate prefixes stripped. ASCII diagrams: **global column expansion** algorithm. |
 
-**ASCII Diagram Grid Expansion**:
-When translated Vietnamese text is wider than original Japanese text inside box-drawing diagrams, the reconstructor uses `wcwidth` to calculate visual column widths. If the translation fits within available space (original token width + trailing spaces), it replaces in-place. If wider, the translation is truncated to fill available width via `_truncate_to_visual_width()`. If narrower, padding spaces are added to maintain grid alignment of `│`, `┌`, `└`, `┐`, `┘` characters.
+**XLSX Drawing Serialization Note**: Drawings (flowcharts, annotations, etc.) use inline xmlns declarations (`xmlns:mc`, `xmlns:a14`, `xmlns:a16`) on child elements rather than the root element. The standard `preserve_xml_declaration()` function replaces ET's root tag (which has all xmlns hoisted) with the original root tag (which lacks these xmlns), causing Excel corruption. Drawings therefore use `ET.tostring()` directly, which correctly hoists all inline xmlns to the root — producing semantically equivalent, valid XML.
 
 ---
 
@@ -230,9 +224,9 @@ Binary file download of the translated output. Response filename follows the pat
 |:--------|:---------------|
 | System prompt | Enforces JP→VI only, keep English/numbers/symbols |
 | Omni Skills | `inline_tag_translation_rule.md` loaded into LLM system prompt — strict rules for `<tagX>` preservation with few-shot examples |
-| Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation and triggers RALPH loop retry (max 2 attempts per segment) |
+| Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation and triggers RALPH loop retry (configurable max attempts per segment) |
 | JP Leak Detector | CJK character regex (`[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]`) detects untranslated Hiragana, Katakana, and Kanji in output; queues 1-by-1 retry with explicit anti-leak warnings |
-| Translation Cache | SQLite `translation_cache.db` — segments with cached translations skip LLM call entirely; only clean translations (no leaks, valid tags) are cached |
+| Translation Cache | SQLite `translations.db` — segments with cached translations skip LLM call entirely; only clean translations (no leaks, valid tags) are cached |
 | Glossary injection | User-defined `GlossaryTerm` table injected into system prompt as mandatory translation table |
 | Count mismatch fallback | Auto-retries 1-by-1 if batch `\|\|\|`-delimited response has wrong segment count |
 | Per-file-type context | Format-specific prompt extensions guide LLM behavior (e.g., "PRESERVE ALL markup" for Markdown) |
@@ -247,3 +241,4 @@ Binary file download of the translated output. Response filename follows the pat
 - **Air-gapped** — Ollama runs locally, no outbound network calls
 - **Docker isolation** — app container has limited filesystem access via volume mounts
 - **Per-pipeline OllamaClient** — each translation job creates a fresh HTTP client to prevent timeout-corrupted state from affecting other requests
+- **Environment secrets** — `.env` file is gitignored; `.env.example` template committed without secrets

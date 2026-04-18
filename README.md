@@ -33,11 +33,12 @@ FastAPI Server ──→ Orchestrator Pipeline
 
 - **100% deterministic reconstruction** — pure Zip binary copy for non-text components, zero data loss (Macros, VML, Charts preserved).
 - **Format preservation via Omni Skill** — Trados-style inline tag serialization `<tagX>` to keep rich text styling intra-sentence.
-- **LLM Tag Validator (RALPH Loop)** — Python regex validation traps LLM hallucinations/dropped tags and forces automated retries (max 2 attempts per segment).
+- **LLM Tag Validator (RALPH Loop)** — Python regex validation traps LLM hallucinations/dropped tags and forces automated retries (configurable max attempts per segment).
 - **JP Leak Detection** — CJK character regex scan catches untranslated Japanese (Hiragana, Katakana, Kanji) left in translated output; triggers retry with explicit warnings.
-- **Translation Cache** — SQLite-based cache (`translation_cache.db`) avoids re-translating already-seen segments across jobs.
+- **Translation Cache** — SQLite-based cache (`translations.db`) avoids re-translating already-seen segments across jobs.
 - **Unified Native OOXML Engine** — no dependency on volatile `openpyxl`, `python-docx`, `python-pptx` wrappers. All extraction/reconstruction uses `zipfile` + `xml.etree.ElementTree` directly.
-- **XLSX Byte-Level Surgery** — regex-based byte surgery on `workbook.xml` preserves original namespace prefixes; cross-sheet formula references (`Sheet!A1`) and `definedName` ranges are auto-updated when sheets are renamed; external workbook refs `[N]Sheet!` are left intact; phonetic annotations (`rPh`) stripped; Japanese fonts patched to Latin equivalents; stale cached `<v>` values stripped; `calcChain.xml` dropped to force recalculation.
+- **XLSX Integrity Protection** — regex-based byte surgery on `workbook.xml` preserves original namespace prefixes; cross-sheet formula references and `definedName` ranges auto-updated on sheet rename; `calcChain.xml` dropped with references cleaned from `[Content_Types].xml` and `workbook.xml.rels`; phonetic annotations globally stripped; drawing text translated via ET with direct serialization (bypassing `preserve_xml_declaration` to prevent inline xmlns loss).
+- **Environment-based configuration** — all settings externalized to `.env` file with sensible defaults; no `python-dotenv` dependency (custom loader).
 - **Single model** — one `gemma4:e4b` handles all translation locally via Ollama.
 
 ## Supported Formats
@@ -45,7 +46,7 @@ FastAPI Server ──→ Orchestrator Pipeline
 | Format | Engine | Extraction Strategy | Reconstruction Strategy |
 |:-------|:-------|:-------------------|:-----------------------|
 | DOCX | `zipfile` + `xml.etree` | `word/document.xml` etc. `<w:p>` aggregation | Non-destructive Zip Clone + Inline Tag Restore |
-| XLSX | `zipfile` + `xml.etree` | `xl/sharedStrings.xml` + `xl/worksheets/*.xml` (inlineStr) + `xl/drawings/*.xml` + sheet names from `xl/workbook.xml` | Byte-level surgery: sheet names translated, cross-sheet formula refs (`Sheet!A1`, `definedName`) updated, external refs `[N]Sheet!` preserved, drawings/charts refs patched, phonetic stripped, fonts patched, calcChain dropped |
+| XLSX | `zipfile` + `xml.etree` | `xl/sharedStrings.xml` + `xl/worksheets/*.xml` (inlineStr) + `xl/drawings/*.xml` + sheet names from `xl/workbook.xml` | Byte-level surgery: sheet names translated, cross-sheet formula refs updated, drawings translated via ET with direct serialization, phonetic stripped, fonts patched, calcChain dropped + references cleaned |
 | PPTX | `zipfile` + `xml.etree` | `ppt/slides/slide*.xml` `<a:p>` aggregation | Non-destructive Zip Clone + Inline Tag Restore |
 | TXT/MD | stdlib | Line-by-line + diagram token extraction | Line replacement + grid expansion for ASCII art |
 | CSV | csv module | Cell-by-cell | Cell replacement |
@@ -60,24 +61,33 @@ FastAPI Server ──→ Orchestrator Pipeline
 - Docker + Docker Compose
 - 16GB+ RAM (for Ollama model)
 
-### 1. Pre-download Model (on internet-connected machine)
+### 1. Configure Environment
+
+```bash
+# Copy the example config and customize
+cp .env.example .env
+
+# Edit .env to match your setup (defaults work for most cases)
+```
+
+### 2. Pre-download Model (on internet-connected machine)
 
 ```bash
 chmod +x scripts/setup_models.sh
 ./scripts/setup_models.sh
 ```
 
-### 2. Start Services
+### 3. Start Services
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Access UI
+### 4. Access UI
 
 Open [http://localhost:8000](http://localhost:8000)
 
-### 4. CLI Usage (alternative to web UI)
+### 5. CLI Usage (alternative to web UI)
 
 ```bash
 cd backend
@@ -86,6 +96,49 @@ pip install -r requirements.txt
 python scripts/translate_cli.py --file samples/japanese-ja.docx
 python scripts/translate_cli.py --dir samples/
 ```
+
+## Configuration
+
+All settings are managed via environment variables. Configuration priority:
+
+```
+Environment variables > .env file > built-in defaults
+```
+
+### Setup
+
+```bash
+cp .env.example .env   # Create local config (gitignored)
+```
+
+### Available Settings
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| **Ollama Connection** | | |
+| `OLLAMA_URL` | `http://ollama:11434` | Ollama API endpoint |
+| `OLLAMA_TIMEOUT` | `1800` | Ollama request timeout (seconds) |
+| **Model** | | |
+| `MODEL` | `gemma4:e4b` | Translation LLM model |
+| **Translation Parameters** | | |
+| `TRANSLATION_TEMPERATURE` | `0.3` | LLM temperature for translation |
+| `TRANSLATION_NUM_CTX` | `4096` | LLM context window size |
+| `TRANSLATION_MAX_RETRIES` | `3` | Max retry attempts per failed segment |
+| `MAX_CONCURRENT_BATCHES` | `2` | Parallel translation batches |
+| **Extraction Parameters** | | |
+| `MAX_INLINE_TAGS` | `8` | Max inline tags before stripping for plain-text translation |
+| `MAX_SEGMENT_CHARS` | `400` | Max chars per segment before sentence-boundary splitting |
+| `BATCH_MAX_CHARS` | `3000` | Max character count per translation batch |
+| `BATCH_MAX_SEGMENTS` | `5` | Max segment count per translation batch |
+| **Paths** | | |
+| `DATABASE_URL` | `sqlite:///data/db/translations.db` | Job database |
+| `UPLOAD_DIR` | `/data/uploads` | Upload directory |
+| `OUTPUT_DIR` | `/data/output` | Output directory |
+| `TEMP_DIR` | `/data/temp` | Temporary files directory |
+| **Workers** | | |
+| `MAX_WORKERS` | `1` | Background worker count |
+
+> **Docker Note:** `docker-compose.yml` uses `env_file: .env` and overrides Docker-specific paths (OLLAMA_URL, OUTPUT_DIR, etc.) in its `environment:` block.
 
 ## Development
 
@@ -102,15 +155,14 @@ pip install -r requirements.txt
 
 ```bash
 cd backend
-pytest tests/ -v  # ~70 tests
+pytest tests/ -v  # ~160 tests
 ```
 
 ### Start Dev Server
 
 ```bash
 cd backend
-MODEL=gemma4:e4b OLLAMA_URL=http://localhost:11434 \
-  uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000
 ```
 
 ## API Endpoints
@@ -123,24 +175,12 @@ MODEL=gemma4:e4b OLLAMA_URL=http://localhost:11434 \
 | GET | `/api/download/{id}` | Download translated file |
 | GET | `/api/health` | Health check (Ollama connection) |
 
-## Environment Variables
-
-| Variable | Default | Description |
-|:---------|:--------|:------------|
-| `OLLAMA_URL` | `http://ollama:11434` | Ollama API endpoint |
-| `MODEL` | `gemma4:e4b` | Translation LLM model |
-| `DATABASE_URL` | `sqlite:///data/db/translations.db` | Job database |
-| `UPLOAD_DIR` | `/data/uploads` | Upload directory |
-| `OUTPUT_DIR` | `/data/output` | Output directory |
-| `TEMP_DIR` | `/data/temp` | Temporary files directory |
-| `MAX_WORKERS` | `1` | Background worker count |
-| `MAX_CONCURRENT_BATCHES` | `2` (config) / `4` (Docker) | Parallel translation batches; Docker Compose overrides to 4 |
-| `OLLAMA_TIMEOUT` | `1800` | Ollama request timeout (seconds) |
-
 ## Project Structure
 
 ```
 mvp_jp_vi/
+├── .env.example              # Environment config template (committed)
+├── .env                      # Local overrides (gitignored)
 ├── backend/
 │   ├── app/
 │   │   ├── agent/              # Core translation pipeline
@@ -156,31 +196,14 @@ mvp_jp_vi/
 │   │   │       ├── pptx.py              # PPTX: Zip clone + inline tag restore
 │   │   │       └── plaintext.py         # TXT/MD/CSV: line replace + ASCII diagram grid expansion
 │   │   ├── ollama/             # Ollama HTTP client + model manager
-│   │   │   ├── client.py            # Async HTTP client (httpx)
-│   │   │   ├── model_manager.py     # Model load/unload management
-│   │   │   └── exceptions.py        # Custom exceptions (Timeout, Connection, Model errors)
 │   │   ├── prompts/            # LLM prompt templates
-│   │   │   └── inline_tag_translation_rule.md  # Omni Skill: inline tag preservation rules
 │   │   ├── routes/             # FastAPI endpoints
-│   │   │   ├── upload.py            # POST /api/upload
-│   │   │   ├── jobs.py              # GET /api/jobs, GET /api/jobs/{id}
-│   │   │   └── download.py          # GET /api/download/{id}
 │   │   ├── utils/              # Japanese detection, file detect, encoding
-│   │   │   ├── japanese.py          # has_japanese(), chunk_text()
-│   │   │   ├── file_detect.py       # detect_file_type()
-│   │   │   └── encoding.py          # read_text_file() with JP encoding detection
-│   │   ├── config.py           # Environment settings
-│   │   ├── database.py         # Async SQLite CRUD
-│   │   ├── models.py           # ORM models (Job, JobAttempt, GlossaryTerm)
-│   │   └── main.py             # FastAPI app + lifespan
-│   └── tests/                  # Unit + integration tests
+│   │   └── config.py           # Environment settings (.env loader + Settings class)
+│   └── tests/                  # Unit + integration tests (~160 tests)
 ├── frontend/
 │   └── index.html              # Upload UI + progress tracker
 ├── data/                       # Runtime data (gitignored contents)
-│   ├── uploads/                # Uploaded source documents
-│   ├── output/                 # Translated output files
-│   └── db/                     # SQLite databases
-├── samples/                    # Demo input files (one per format)
 ├── docs/
 │   └── architecture.md         # Architecture deep-dive
 ├── scripts/
@@ -198,7 +221,8 @@ mvp_jp_vi/
 | `MAX_CONCURRENT_BATCHES` | `2` | Increase for high-VRAM GPUs, decrease for CPU-only |
 | `OLLAMA_NUM_PARALLEL` | `4` | Match with `MAX_CONCURRENT_BATCHES` |
 | `OLLAMA_KEEP_ALIVE` | `24h` | Keeps model in RAM — eliminates cold-start delay |
-| Batch size | 5 segs / 3000 chars | Tuned for gemma4:e4b 8K context window |
+| `BATCH_MAX_SEGMENTS` | `5` | Segments per batch — lower reduces mismatch risk |
+| `BATCH_MAX_CHARS` | `3000` | Chars per batch — tuned for gemma4:e4b 8K context window |
 
 ## Translation Quality Controls
 
@@ -206,9 +230,9 @@ mvp_jp_vi/
 |:--------|:---------------|
 | System prompt | Enforces JP→VI only, keep English/numbers/symbols |
 | Omni Skill | `inline_tag_translation_rule.md` loaded into LLM to prevent formatting tag loss |
-| Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation, triggers RALPH loop retry (max 2 attempts) |
-| JP Leak Detector | CJK character regex detects untranslated Japanese (Hiragana/Katakana/Kanji) in output, queues 1-by-1 retry with explicit anti-leak warnings |
-| Translation Cache | SQLite `translation_cache.db` — segments with cached translations skip LLM call entirely |
+| Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation, triggers RALPH loop retry |
+| JP Leak Detector | CJK character regex detects untranslated Japanese in output, queues 1-by-1 retry with explicit anti-leak warnings |
+| Translation Cache | SQLite `translations.db` — segments with cached translations skip LLM call entirely |
 | Glossary injection | User-defined `GlossaryTerm` table injected into system prompt as mandatory translation table |
 | Count mismatch fallback | Auto-retries 1-by-1 if batch `|||`-delimited response has wrong segment count |
 
