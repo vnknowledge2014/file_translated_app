@@ -91,6 +91,11 @@ NS = {
 # which dropped important numeric runs from paragraph text.
 _DOCX_FOOTNOTE_PAT = re.compile(r'^\[\d+\]$')
 
+# Max inline tags per segment before stripping tags for plain-text translation.
+# LLM reliably handles ≤8 tags but consistently fails tag validation at >8,
+# causing entire paragraphs to remain untranslated.
+_MAX_INLINE_TAGS = 8
+
 # Max chars per segment before splitting at sentence boundaries
 _MAX_SEG_CHARS = 400
 _JP_SENTENCE_END = re.compile(r'(?<=[。！？])\s*')
@@ -169,15 +174,28 @@ def extract_docx(file_path: str) -> list[dict]:
 
                     full_text = "".join(runs).strip()
                     if full_text and _is_translatable(full_text):
-                        # OOXML segments must NOT be split because splitting
-                        # breaks tag pairs across chunks, making reconstruction
-                        # impossible.  The translator handles long segments via
-                        # tag stripping (>8 tags → translate as plain text).
-                        segments.append({
-                            "text": full_text,
-                            "location": f"{filename}:p[{p_idx}]",
-                            "type": "body",
-                        })
+                        tag_count = len(re.findall(r'</?tag\d+>', full_text))
+                        location = f"{filename}:p[{p_idx}]"
+
+                        if tag_count > _MAX_INLINE_TAGS:
+                            # Too many tags → LLM will fail tag validation.
+                            # Strip tags and split at sentence boundaries
+                            # so each chunk is <400 chars and cache-stable.
+                            plain = re.sub(r'</?tag\d+>', '', full_text)
+                            logger.info(
+                                f"Stripped {tag_count} tags from paragraph "
+                                f"({len(plain)} chars) at extraction time."
+                            )
+                            chunks = _split_long_segment(
+                                plain, location, "body"
+                            )
+                            segments.extend(chunks)
+                        else:
+                            segments.append({
+                                "text": full_text,
+                                "location": location,
+                                "type": "body",
+                            })
             except ET.ParseError:
                 pass
 

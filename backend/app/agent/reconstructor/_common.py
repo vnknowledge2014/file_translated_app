@@ -33,6 +33,8 @@ def replace_in_text(text: str, tmap: dict[str, str]) -> str | None:
     """Check if text matches any key in tmap, return replacement or None.
 
     Tries exact match first, then partial match for longer texts.
+    Handles footnote markers [N] that exist in DOCX paragraph text
+    but were stripped during extraction.
 
     Args:
         text: Original text to check.
@@ -41,6 +43,8 @@ def replace_in_text(text: str, tmap: dict[str, str]) -> str | None:
     Returns:
         Translated text if found, None otherwise.
     """
+    import re
+
     if not text or not text.strip():
         return None
 
@@ -50,14 +54,25 @@ def replace_in_text(text: str, tmap: dict[str, str]) -> str | None:
     if stripped in tmap:
         return tmap[stripped]
 
+    # Also try exact match after removing footnote markers [N]
+    # (extractor skips footnote-only runs, so keys won't have them)
+    normalized = re.sub(r'\[\d+\]', '', stripped)
+    if normalized != stripped and normalized in tmap:
+        return tmap[normalized]
+
     # Try partial match for longer texts (paragraph-level)
     # Sort by key length descending so longer strings are replaced first,
     # preventing short substrings from corrupting longer matches
     # (e.g., '管理' must not replace inside 'イベント管理')
+    #
+    # Use normalized text (footnotes removed) for matching so that
+    # extracted chunks (which skip footnote runs) can match.
+    working = normalized
     for jp, vi in sorted(tmap.items(), key=lambda x: len(x[0]), reverse=True):
-        if jp in stripped:
-            stripped = stripped.replace(jp, vi)
-    if stripped != text.strip():
-        return stripped
+        if jp in working:
+            working = working.replace(jp, vi)
+    if working != normalized:
+        return working
 
     return None
+

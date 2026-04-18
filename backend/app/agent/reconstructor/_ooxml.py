@@ -215,8 +215,46 @@ def replace_paragraph_runs(
             continue
 
         trans = replace_in_text(full_text, tmap)
+        if not trans:
+            # Fallback: try plain text match (tags stripped).
+            # This handles paragraphs where extractor stripped tags due to
+            # too many inline tags — tmap keys are plain text.
+            plain = re.sub(r'</?tag\d+>', '', full_text)
+            trans = replace_in_text(plain, tmap)
+            if trans:
+                # Plain text match: create a single run with merged text
+                # (no tag structure to preserve)
+                nr = ET.Element(f'{{{NS[ns_key]}}}r')
+                # Use formatting from first run
+                if agg_run_elements:
+                    rpr = agg_run_elements[0].find(f'{ns_key}:rPr', NS)
+                    if rpr is not None:
+                        nr.append(ET.fromstring(ET.tostring(rpr)))
+                nt = ET.SubElement(nr, f'{{{NS[ns_key]}}}t')
+                nt.set(
+                    '{http://www.w3.org/XML/1998/namespace}space', 'preserve'
+                )
+                nt.text = trans
+                # Find insertion point and do replacement
+                p_children = list(p)
+                insert_idx = len(p_children)
+                for r in agg_run_elements:
+                    try:
+                        insert_idx = min(insert_idx, p_children.index(r))
+                    except ValueError:
+                        pass
+                for r in agg_run_elements:
+                    p.remove(r)
+                p.insert(insert_idx, nr)
+                if strip_phonetic_fn:
+                    strip_phonetic_fn(p)
+                replaced += 1
+                continue
+
         if trans:
             new_runs = deserialize_tags_to_xml(trans, agg_run_elements, ns_key)
+            # Fix missing spaces at Vietnamese word boundaries between runs
+            _fix_run_boundaries(new_runs, t_tag)
             # Find insertion index (before endParaRPr)
             p_children = list(p)
             insert_idx = len(p_children)
@@ -236,6 +274,60 @@ def replace_paragraph_runs(
             replaced += 1
 
     return replaced
+
+
+def _is_viet_char(ch: str) -> bool:
+    """Check if a character is a Vietnamese alphabetic character (including diacritics)."""
+    if not ch or not ch.isalpha():
+        return False
+    # Vietnamese uses Latin + diacritics; check for non-ASCII letters
+    # or common Vietnamese tonal letters
+    return True  # All alpha chars can be Vietnamese word chars
+
+
+def _needs_space_between(left: str, right: str) -> bool:
+    """Check if a space is needed between two adjacent run texts.
+
+    Returns True if left ends with a letter and right starts with a letter,
+    indicating a missing word boundary. Does NOT insert spaces next to
+    punctuation, digits, or whitespace.
+    """
+    if not left or not right:
+        return False
+    last = left.rstrip()
+    first = right.lstrip()
+    if not last or not first:
+        return False
+    # Only inject if both sides are letters (word chars)
+    return last[-1].isalpha() and first[0].isalpha()
+
+
+def _fix_run_boundaries(runs: list[ET.Element], t_tag: str) -> None:
+    """Fix missing spaces at word boundaries between adjacent OOXML runs.
+
+    When the LLM translates tagged text like '<tag1>栽培法</tag1>と<tag2>品種</tag2>'
+    into '<tag1>trồng trọt</tag1>và<tag2>giống</tag2>', the runs get joined
+    as 'trồng trọtvàgiống' without spaces.
+
+    This function checks each pair of adjacent runs and injects a leading
+    space on the right run when a word boundary is missing.
+    """
+    for i in range(len(runs) - 1):
+        t_left = runs[i].find(t_tag)
+        t_right = runs[i + 1].find(t_tag)
+        if t_left is None or t_right is None:
+            continue
+        left_text = t_left.text or ""
+        right_text = t_right.text or ""
+
+        if _needs_space_between(left_text, right_text):
+            # Append trailing space to left run (more robust for Word rendering).
+            # Word sometimes trims leading spaces on the next run even with
+            # xml:space="preserve" when run styles differ.
+            t_left.text = left_text + " "
+            t_left.set(
+                '{http://www.w3.org/XML/1998/namespace}space', 'preserve'
+            )
 
 
 def preserve_xml_declaration(modified_root: ET.Element, original_buffer: bytes) -> bytes:

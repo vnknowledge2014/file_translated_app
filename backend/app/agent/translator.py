@@ -74,10 +74,7 @@ TRANSLATION_SYSTEM_PROMPT = """You are a Japanese-to-Vietnamese translator.
 - If a <tagN>word</tagN> is followed by another word, ensure a space exists
 """
 
-# Max inline tags per segment before stripping tags for plain-text translation.
-# LLM reliably handles ≤8 tags but consistently fails tag validation at >8,
-# causing entire paragraphs to remain untranslated (seen in DOCX P[2]=28 tags).
-_MAX_INLINE_TAGS = 8
+
 
 # ── Per file-type context hints ──
 
@@ -321,19 +318,7 @@ class Translator:
         if not to_translate:
             return segments
 
-        # Strip tags from segments with too many inline tags.
-        # These always fail tag validation and waste RALPH retries,
-        # leaving the paragraph completely untranslated.
-        for seg in to_translate:
-            tag_count = len(re.findall(r'</?tag\d+>', seg["text"]))
-            if tag_count > _MAX_INLINE_TAGS:
-                seg["_original_tagged_text"] = seg["text"]
-                seg["text"] = re.sub(r'</?tag\d+>', '', seg["text"])
-                seg["_no_tags"] = True
-                logger.info(
-                    f"Stripped {tag_count} tags from segment "
-                    f"({len(seg['text'])} chars) for plain-text translation."
-                )
+
 
         texts = [s["text"] for s in to_translate]
         user_prompt = "|||".join(texts)
@@ -370,16 +355,9 @@ class Translator:
                         f"Queueing for 1-by-1 retry."
                     )
                     needs_retry.append(seg)
-                elif seg.get("_no_tags") or self._validate_tags(seg["text"], trans_clean):
-                    # For tag-stripped segments, restore original tagged text as
-                    # tmap key so reconstructor can match during run replacement.
-                    if seg.get("_no_tags"):
-                        cache_key = seg["text"]  # plain text (for cache)
-                        seg["text"] = seg["_original_tagged_text"]
-                    else:
-                        cache_key = seg["text"]
+                elif self._validate_tags(seg["text"], trans_clean):
                     seg["translated_text"] = trans_clean
-                    await self._set_cached_translation(cache_key, trans_clean)
+                    await self._set_cached_translation(seg["text"], trans_clean)
                 else:
                     logger.warning(
                         f"Tag validation failed for segment. Queueing for RALPH retry."
@@ -437,8 +415,7 @@ class Translator:
                 single_clean = single_response.strip()
 
                 jp_leak = self._has_jp_leak(single_clean)
-                # Skip tag validation for segments that had tags stripped
-                tags_ok = seg.get("_no_tags") or self._validate_tags(
+                tags_ok = self._validate_tags(
                     seg["text"], single_clean
                 )
 
