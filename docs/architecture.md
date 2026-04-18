@@ -25,7 +25,7 @@
 │                                                          │
 │  Volume: /data/                                          │
 │  ├── uploads/    (original files)                        │
-│  ├── output/     (translated files)                      │
+│  ├── output/     (translated files + .xlf bilingual)     │
 │  ├── temp/       (temporary files)                       │
 │  └── db/         (translations.db)                       │
 └──────────────────────────────────────────────────────────┘
@@ -39,16 +39,18 @@ See `README.md` → Configuration section for the full settings table.
 
 ---
 
-## Pipeline — 3 Deterministic Phases
+## Pipeline — Adaptive 5-Phase Architecture
 
 ```
-Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ segments[] ──→ [RECONSTRUCT] ──→ Output File
-               XML Zip Scan   with text      LLM call        + tags          Zip Clone       _vi.ext
-               No wrapper     originals      gemma4:e4b      validated       No corruption
-                                               │
-                                         cache lookup
-                                      (translations.db)
+Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ [SCORE] ──→ [XLIFF] ──→ [RECONSTRUCT] ──→ Output File
+               XML Zip Scan   with text      LLM call      Confidence   Export/      Zip Clone       _vi.ext
+               No wrapper     originals      gemma4:e4b     0.0–1.0      Import       No corruption
+                                               │              │
+                                         cache lookup    HIGH → auto-approve
+                                      (translations.db)  LOW  → needs-review → .xlf for CAT tools
 ```
+
+> **Note**: The SCORE and XLIFF phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely — reviewed translations from a CAT tool are merged directly into segments before reconstruction.
 
 ### Phase 1: EXTRACT (Deterministic)
 
@@ -205,7 +207,7 @@ jobs
 ├── id (UUID hex, PK)
 ├── filename, file_type, file_path
 ├── output_path (nullable — set on completion)
-├── status: pending → extracting → translating → reconstructing → verifying → completed | failed
+├── status: pending → extracting → translating → scoring → importing → exporting → reconstructing → verifying → completed | failed
 ├── progress (0.0–1.0)
 ├── progress_message (nullable — human-readable status)
 ├── error_message (nullable)
@@ -288,6 +290,18 @@ Binary file download of the translated output. Response filename follows the pat
 { "status": "ok", "ollama": "connected" }
 ```
 
+### POST `/api/import-xliff`
+```
+Request: multipart/form-data
+  - xliff_file: .xlf file (reviewed XLIFF from CAT tool)
+  - original_file: original source document (.docx, .xlsx, etc.)
+
+Response: Binary file download (reconstructed translated document)
+  Content-Disposition: attachment; filename="original_vi.ext"
+```
+
+Workflow: Extract segments from original → Import translations from XLIFF → Merge → Reconstruct → Download. No LLM call needed.
+
 ---
 
 ## Translation Quality Controls
@@ -303,6 +317,8 @@ Binary file download of the translated output. Response filename follows the pat
 | Count mismatch fallback | Auto-retries 1-by-1 if batch `\|\|\|`-delimited response has wrong segment count |
 | Per-file-type context | Format-specific prompt extensions guide LLM behavior (e.g., "PRESERVE ALL markup" for Markdown) |
 | Hallucinated prefix strip | Plaintext reconstructor strips duplicate Markdown prefixes (`#`, `-`, `>`) and trailing pipes that LLM may hallucinate into translations |
+| **Confidence Scoring** | Multi-signal heuristic (JP leak -0.5, tag mismatch -0.4, length anomaly -0.3, retry -0.1, cache +0.2) classifies segments into HIGH/MEDIUM/LOW for adaptive review triage |
+| **XLIFF Exchange** | Bilingual .xlf export enables human review in CAT tools (Trados, memoQ, OmegaT); reviewed XLIFF import skips LLM entirely for human-corrected output |
 
 ---
 

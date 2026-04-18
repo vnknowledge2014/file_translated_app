@@ -5,10 +5,12 @@
 ## 0. Execution Flow (Pipeline)
 The core translation process follows a strictly deterministic sequential pipeline:
 1. **Web Upload:** `backend/app/routes/upload.py` accepts the file.
-2. **Orchestration:** `backend/app/agent/orchestrator.py` manages jobs and retries.
+2. **Orchestration:** `backend/app/agent/orchestrator.py` manages jobs, mode selection, and retries.
 3. **Extraction:** `backend/app/agent/extractor.py` strips OOXML/JSON/Markdown into clean translation segments.
-4. **Translation:** `backend/app/agent/translator.py` batches segments to Ollama via HTTP.
-5. **Reconstruction:** `backend/app/agent/reconstructor/*.py` puts translated strings back into exactly the right structure.
+4. **Translation:** `backend/app/agent/translator.py` batches segments to Ollama via HTTP (skipped in `--import-xliff` mode).
+5. **Confidence Scoring:** `backend/app/agent/confidence.py` scores each segment (0.0–1.0) for adaptive triage.
+6. **XLIFF Exchange:** `backend/app/agent/xliff.py` exports/imports bilingual XLIFF (1.2/2.1) for CAT tool review.
+7. **Reconstruction:** `backend/app/agent/reconstructor/*.py` puts translated strings back into exactly the right structure.
 
 ## 1. Core Application (backend/app)
 
@@ -37,8 +39,19 @@ The core translation process follows a strictly deterministic sequential pipelin
 - **Purpose:** Agent package — orchestrator, extractor, translator, reconstructor.
 
 ### `backend/app/agent/orchestrator.py`
-- **Purpose:** Orchestrator — fully deterministic Extract → Translate → Reconstruct pipeline.
+- **Purpose:** Orchestrator — adaptive Extract → Translate → Score → XLIFF → Reconstruct pipeline.
 - **Classes:** Orchestrator
+- **Notes:** Supports 4 operating modes: Full Auto, Assisted (with XLIFF export), Manual (blank XLIFF), Import (skip LLM).
+
+### `backend/app/agent/xliff.py`
+- **Purpose:** XLIFF bilingual translation exchange — dual-version (1.2 + 2.1).
+- **Functions:** export_xliff, import_xliff, merge_xliff_into_segments, detect_xliff_version, _tags_to_xliff_v12, _xliff_v12_to_tags, _tags_to_xliff_v21, _xliff_v21_to_tags
+- **Notes:** Zero dependencies (stdlib `xml.etree` + `re`). Inline tag mapping `<tagN>` ↔ XLIFF inline elements. State machine: new → translated → needs-review → final.
+
+### `backend/app/agent/confidence.py`
+- **Purpose:** Multi-signal heuristic confidence scorer for translation quality.
+- **Functions:** score_segment, classify_segments
+- **Notes:** Scores 0.0–1.0 using JP leak, tag mismatch, length ratio, retry count, cache hit. Classifies HIGH/MEDIUM/LOW.
 
 ### `backend/app/agent/extractor.py`
 - **Purpose:** Deterministic text extraction for all supported document formats.
@@ -110,6 +123,10 @@ The core translation process follows a strictly deterministic sequential pipelin
 ### `backend/app/routes/download.py`
 - **Purpose:** Download route — GET /api/download/{job_id} → serve output file.
 - **Functions:** download_file
+
+### `backend/app/routes/xliff.py`
+- **Purpose:** XLIFF routes — POST /api/import-xliff → import reviewed XLIFF and reconstruct.
+- **Functions:** import_xliff_route
 
 ### `backend/app/utils/__init__.py`
 - **Purpose:** No docstring provided.
@@ -191,11 +208,20 @@ The core translation process follows a strictly deterministic sequential pipelin
 - **Purpose:** Tests for app.agent.translator — Batch translation.
 - **Classes:** TestChunkSegments, TestTranslator
 
+### `backend/tests/test_xliff.py`
+- **Purpose:** Tests for XLIFF dual-version bilingual translation exchange.
+- **Classes:** TestExportV12, TestExportV21, TestImportRoundtrip, TestVersionDetect, TestInlineTagsV12, TestInlineTagsV21, TestMergeXliff
+
+### `backend/tests/test_confidence.py`
+- **Purpose:** Tests for multi-signal confidence scorer.
+- **Classes:** TestScoreSegment, TestClassifySegments
+
 ## 3. Scripts
 
 ### `scripts/translate_cli.py`
 - **Purpose:** CLI runner for the JP→VI translation pipeline.
 - **Functions:** _progress_bar, translate_one, main
+- **Notes:** Supports `--export-xliff`, `--import-xliff`, `--xliff-version`, `--no-translate` flags.
 
 ### `scripts/generate_project_map.py`
 - **Purpose:** Auto-generate this PROJECT_MAP.md from AST introspection.
