@@ -29,6 +29,7 @@ class Job(Base):
     file_type = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     output_path = Column(String, nullable=True)
+    xliff_path = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
     progress = Column(Float, nullable=False, default=0.0)
     progress_message = Column(String, nullable=True)
@@ -39,6 +40,25 @@ class Job(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     attempts = relationship("JobAttempt", back_populates="job", cascade="all, delete-orphan")
+    segments = relationship("SegmentReview", back_populates="job", cascade="all, delete-orphan")
+
+
+class SegmentReview(Base):
+    """Per-segment translation data for Review Editor."""
+    __tablename__ = "segment_reviews"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    index = Column(Integer, nullable=False)
+    source = Column(Text, nullable=False)
+    target = Column(Text, nullable=True)
+    edited = Column(Text, nullable=True)
+    confidence = Column(Float, default=0.0)
+    status = Column(String, default="pending")  # pending | approved | edited
+    location = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    job = relationship("Job", back_populates="segments")
 
 
 class JobAttempt(Base):

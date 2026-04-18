@@ -2,65 +2,25 @@
 
 > This document provides semantic summaries, structural metadata, and dependency relationships for all core project files.
 
-## 0. Execution Flow (Pipeline)
-The core translation process follows a strictly deterministic sequential pipeline:
-1. **Web Upload:** `backend/app/routes/upload.py` accepts the file.
-2. **Orchestration:** `backend/app/agent/orchestrator.py` manages jobs, mode selection, and retries.
-3. **Extraction:** `backend/app/agent/extractor.py` strips OOXML/JSON/Markdown into clean translation segments.
-4. **Translation:** `backend/app/agent/translator.py` batches segments to Ollama via HTTP (skipped in `--import-xliff` mode).
-5. **Confidence Scoring:** `backend/app/agent/confidence.py` scores each segment (0.0–1.0) for adaptive triage.
-6. **XLIFF Exchange:** `backend/app/agent/xliff.py` exports/imports bilingual XLIFF (1.2/2.1) for CAT tool review.
-7. **Reconstruction:** `backend/app/agent/reconstructor/*.py` puts translated strings back into exactly the right structure.
-
 ## 1. Core Application (backend/app)
 
 ### `backend/app/__init__.py`
 - **Purpose:** No docstring provided.
 
-### `backend/app/config.py`
-- **Purpose:** Application configuration loaded from .env file and environment variables.
-- **Classes:** Settings
-- **Functions:** _load_dotenv, _env, _env_int, _env_float
-- **Notes:** Custom `.env` loader (no `python-dotenv` dependency). Priority: env vars > `.env` file > defaults.
-
-### `backend/app/main.py`
-- **Purpose:** FastAPI application with lifespan, CORS, and route registration.
-- **Functions:** lifespan, health
-
-### `backend/app/database.py`
-- **Purpose:** Async SQLite database with CRUD operations for job tracking.
-- **Functions:** init_db, create_job, get_job, update_job_status, add_job_attempt, get_job_attempts, get_table_names, list_jobs
-
-### `backend/app/models.py`
-- **Purpose:** SQLAlchemy ORM models for the JP→VI translation tool.
-- **Classes:** Base, Job, JobAttempt, GlossaryTerm
-
 ### `backend/app/agent/__init__.py`
 - **Purpose:** Agent package — orchestrator, extractor, translator, reconstructor.
-
-### `backend/app/agent/orchestrator.py`
-- **Purpose:** Orchestrator — adaptive Extract → Translate → Score → XLIFF → Reconstruct pipeline.
-- **Classes:** Orchestrator
-- **Notes:** Supports 4 operating modes: Full Auto, Assisted (with XLIFF export), Manual (blank XLIFF), Import (skip LLM).
-
-### `backend/app/agent/xliff.py`
-- **Purpose:** XLIFF bilingual translation exchange — dual-version (1.2 + 2.1).
-- **Functions:** export_xliff, import_xliff, merge_xliff_into_segments, detect_xliff_version, _tags_to_xliff_v12, _xliff_v12_to_tags, _tags_to_xliff_v21, _xliff_v21_to_tags
-- **Notes:** Zero dependencies (stdlib `xml.etree` + `re`). Inline tag mapping `<tagN>` ↔ XLIFF inline elements. State machine: new → translated → needs-review → final.
 
 ### `backend/app/agent/confidence.py`
 - **Purpose:** Multi-signal heuristic confidence scorer for translation quality.
 - **Functions:** score_segment, classify_segments
-- **Notes:** Scores 0.0–1.0 using JP leak, tag mismatch, length ratio, retry count, cache hit. Classifies HIGH/MEDIUM/LOW.
 
 ### `backend/app/agent/extractor.py`
 - **Purpose:** Deterministic text extraction for all supported document formats.
-- **Functions:** _is_translatable, _dedup_segments, _split_long_segment, extract_docx, extract_xlsx, extract_pptx, _is_diagram_block, _extract_diagram_tokens, extract_plaintext, extract_document
+- **Functions:** _is_translatable, _dedup_segments, _split_long_segment, extract_docx, extract_xlsx
 
-### `backend/app/agent/translator.py`
-- **Purpose:** Batch translation via LLM with ||| delimiter.
-- **Classes:** Translator
-- **Functions:** _load_prompt_file, build_glossary_prompt, chunk_segments
+### `backend/app/agent/orchestrator.py`
+- **Purpose:** Orchestrator — fully deterministic Extract → Translate → Reconstruct pipeline.
+- **Classes:** Orchestrator
 
 ### `backend/app/agent/reconstructor/__init__.py`
 - **Purpose:** Deterministic document reconstruction — per-format modules.
@@ -72,23 +32,47 @@ The core translation process follows a strictly deterministic sequential pipelin
 
 ### `backend/app/agent/reconstructor/_ooxml.py`
 - **Purpose:** Shared OOXML (Office Open XML) processing utilities.
-- **Functions:** register_namespaces, register_document_namespaces, deserialize_tags_to_xml, replace_paragraph_runs, _is_viet_char, _needs_space_between, _fix_run_boundaries, preserve_xml_declaration
+- **Functions:** register_namespaces, register_document_namespaces, deserialize_tags_to_xml, replace_paragraph_runs, _is_viet_char
 
 ### `backend/app/agent/reconstructor/docx.py`
 - **Purpose:** DOCX (Word) deterministic reconstruction.
 - **Functions:** _is_docx_xml, reconstruct_docx
 
-### `backend/app/agent/reconstructor/xlsx.py`
-- **Purpose:** XLSX (Excel) deterministic reconstruction.
-- **Functions:** _sanitize_sheet_name, _build_sheet_name_map, _safe_replace, _fix_sheet_refs_in_text, _fix_formula_sheet_refs, _strip_phonetic, _strip_all_phonetics, _patch_japanese_fonts, _patch_workbook_xml, _process_worksheet, _process_drawing, _process_drawing_text, reconstruct_xlsx
+### `backend/app/agent/reconstructor/plaintext.py`
+- **Purpose:** Plaintext (txt, md, csv) deterministic reconstruction.
+- **Functions:** _box_top_re, _box_bottom_re, _split_cells, _rebuild_border, _rebuild_cell_line
 
 ### `backend/app/agent/reconstructor/pptx.py`
 - **Purpose:** PPTX (PowerPoint) deterministic reconstruction.
 - **Functions:** _is_pptx_xml, reconstruct_pptx
 
-### `backend/app/agent/reconstructor/plaintext.py`
-- **Purpose:** Plaintext (txt, md, csv) deterministic reconstruction.
-- **Functions:** visual_width, insert_at_visual_col, _truncate_to_visual_width, _strip_hallucinated_prefix, _expand_containers, _algorithmic_reshape, _fix_viet_latin_spacing, reconstruct_plaintext
+### `backend/app/agent/reconstructor/xlsx.py`
+- **Purpose:** XLSX (Excel) deterministic reconstruction.
+- **Functions:** _sanitize_sheet_name, _build_sheet_name_map, _safe_replace, _fix_sheet_refs_in_text, _fix_formula_sheet_refs
+
+### `backend/app/agent/translator.py`
+- **Purpose:** Batch translation via LLM with ||| delimiter.
+- **Classes:** Translator
+- **Functions:** _load_prompt_file, build_glossary_prompt, chunk_segments
+
+### `backend/app/agent/xliff.py`
+- **Purpose:** XLIFF bilingual translation exchange — dual-version (1.2 + 2.1).
+- **Functions:** _tags_to_xliff_v12, _xliff_v12_to_tags, _tags_to_xliff_v21, _xliff_v21_to_tags, detect_xliff_version
+
+### `backend/app/config.py`
+- **Purpose:** Application configuration loaded from .env file and environment variables.
+- **Classes:** Settings
+- **Functions:** _load_dotenv, _env, _env_int, _env_float
+
+### `backend/app/database.py`
+- **Purpose:** Async SQLite database with CRUD operations for job tracking.
+
+### `backend/app/main.py`
+- **Purpose:** FastAPI application with lifespan, CORS, and route registration.
+
+### `backend/app/models.py`
+- **Purpose:** SQLAlchemy ORM models for the JP→VI translation tool.
+- **Classes:** Base, Job, SegmentReview, JobAttempt, GlossaryTerm
 
 ### `backend/app/ollama/__init__.py`
 - **Purpose:** Ollama client package.
@@ -105,28 +89,31 @@ The core translation process follows a strictly deterministic sequential pipelin
 - **Purpose:** Model loading/unloading manager for 16GB RAM constraint.
 - **Classes:** ModelManager
 
-### `backend/app/prompts/inline_tag_translation_rule.md`
+### `backend/app/prompts/ooxml_tag_rules.md`
 - **Type:** Non-Python resource/config file.
-- **Description:** Omni Skill: inline tag preservation rules for LLM translation prompts.
+
+### `backend/app/prompts/plaintext_rules.md`
+- **Type:** Non-Python resource/config file.
 
 ### `backend/app/routes/__init__.py`
 - **Purpose:** Routes package.
 
-### `backend/app/routes/upload.py`
-- **Purpose:** Upload route — POST /api/upload → save file + create job + start pipeline.
-- **Functions:** _on_pipeline_done, _run_pipeline, upload_file
+### `backend/app/routes/download.py`
+- **Purpose:** Download route — GET /api/download/{job_id} → serve output file.
 
 ### `backend/app/routes/jobs.py`
 - **Purpose:** Job listing and detail routes.
-- **Functions:** list_all_jobs, get_job_detail
 
-### `backend/app/routes/download.py`
-- **Purpose:** Download route — GET /api/download/{job_id} → serve output file.
-- **Functions:** download_file
+### `backend/app/routes/segments.py`
+- **Purpose:** Segments API — GET/PUT/POST for Review Editor.
+- **Classes:** SegmentEdit
+
+### `backend/app/routes/upload.py`
+- **Purpose:** Upload route — POST /api/upload → save file + create job + start pipeline.
+- **Functions:** _on_pipeline_done
 
 ### `backend/app/routes/xliff.py`
-- **Purpose:** XLIFF routes — POST /api/import-xliff → import reviewed XLIFF and reconstruct.
-- **Functions:** import_xliff_route
+- **Purpose:** XLIFF routes — import reviewed XLIFF and download XLIFF for jobs.
 
 ### `backend/app/utils/__init__.py`
 - **Purpose:** No docstring provided.
@@ -145,16 +132,17 @@ The core translation process follows a strictly deterministic sequential pipelin
 
 ## 2. Tests (backend/tests)
 
-### `backend/conftest.py`
-- **Purpose:** Shared test fixtures for the JP→VI translation tool.
-- **Functions:** sample_jp_text, sample_vi_text, sample_mixed_text
-
 ### `backend/tests/__init__.py`
 - **Purpose:** No docstring provided.
 
 ### `backend/tests/test_api.py`
 - **Purpose:** Tests for FastAPI routes — upload, jobs, download, health.
 - **Classes:** TestHealthEndpoint, TestUploadEndpoint, TestJobsEndpoint, TestDownloadEndpoint
+- **Functions:** client
+
+### `backend/tests/test_confidence.py`
+- **Purpose:** Tests for multi-signal confidence scorer.
+- **Classes:** TestScoreSegment, TestClassifySegments
 
 ### `backend/tests/test_config.py`
 - **Purpose:** Tests for app.config — Settings.
@@ -165,7 +153,7 @@ The core translation process follows a strictly deterministic sequential pipelin
 - **Classes:** TestDatabase
 
 ### `backend/tests/test_e2e_pipeline.py`
-- **Purpose:** End-to-end pipeline test.
+- **Purpose:** No docstring provided.
 - **Functions:** test_full_pipeline_xlsx
 
 ### `backend/tests/test_encoding.py`
@@ -174,14 +162,14 @@ The core translation process follows a strictly deterministic sequential pipelin
 
 ### `backend/tests/test_extractor.py`
 - **Purpose:** Tests for deterministic document extraction.
-- **Classes:** TestIsTranslatable, TestDedupSegments, TestExtractDocx, TestExtractXlsx, TestExtractPptx, TestExtractPlaintext, TestExtractDispatcher
+- **Classes:** TestIsTranslatable, TestDedupSegments, TestExtractDocx, TestExtractXlsx, TestExtractPptx
 
 ### `backend/tests/test_file_detect.py`
 - **Purpose:** Tests for app.utils.file_detect — detect_file_type().
 - **Classes:** TestDetectFileType, TestGetSupportedTypes
 
 ### `backend/tests/test_grid_expansion.py`
-- **Purpose:** Tests for ASCII diagram grid expansion.
+- **Purpose:** No docstring provided.
 - **Functions:** test_visual_width, test_insert_at_visual_col, test_reconstruct_plaintext_diagram
 
 ### `backend/tests/test_japanese.py`
@@ -191,18 +179,20 @@ The core translation process follows a strictly deterministic sequential pipelin
 ### `backend/tests/test_model_manager.py`
 - **Purpose:** Tests for app.ollama.model_manager — Model switching.
 - **Classes:** TestModelManager
+- **Functions:** mock_ollama_client
 
 ### `backend/tests/test_native_zip_xml.py`
-- **Purpose:** Tests for native zip/xml extraction and corruption checks.
+- **Purpose:** No docstring provided.
 - **Functions:** test_xlsx_native_extraction, test_zero_corruption_clone, test_tag_validation_logic
 
 ### `backend/tests/test_ollama_client.py`
 - **Purpose:** Tests for app.ollama.client — Async HTTP client for Ollama API.
-- **Classes:** TestOllamaClient, MockTransport
+- **Classes:** TestOllamaClient
+- **Functions:** mock_transport
 
 ### `backend/tests/test_reconstructor.py`
 - **Purpose:** Tests for deterministic document reconstruction.
-- **Classes:** TestBuildTranslationMap, TestReplaceInText, TestReconstructDocx, TestReconstructXlsx, TestReconstructPptx, TestReconstructPlaintext, TestReconstructDispatcher
+- **Classes:** TestBuildTranslationMap, TestReplaceInText, TestReconstructDocx, TestReconstructXlsx, TestReconstructPptx
 
 ### `backend/tests/test_translator.py`
 - **Purpose:** Tests for app.agent.translator — Batch translation.
@@ -210,52 +200,111 @@ The core translation process follows a strictly deterministic sequential pipelin
 
 ### `backend/tests/test_xliff.py`
 - **Purpose:** Tests for XLIFF dual-version bilingual translation exchange.
-- **Classes:** TestExportV12, TestExportV21, TestImportRoundtrip, TestVersionDetect, TestInlineTagsV12, TestInlineTagsV21, TestMergeXliff
+- **Classes:** TestExportV12, TestExportV21, TestImportRoundtrip, TestVersionDetect, TestInlineTagsV12
 
-### `backend/tests/test_confidence.py`
-- **Purpose:** Tests for multi-signal confidence scorer.
-- **Classes:** TestScoreSegment, TestClassifySegments
+## 3. Configuration & Root
 
-## 3. Scripts
+### `.DS_Store`
+- **Type:** Non-Python resource/config file.
 
-### `scripts/translate_cli.py`
-- **Purpose:** CLI runner for the JP→VI translation pipeline.
-- **Functions:** _progress_bar, translate_one, main
-- **Notes:** Supports `--export-xliff`, `--import-xliff`, `--xliff-version`, `--no-translate` flags.
-
-### `scripts/generate_project_map.py`
-- **Purpose:** Auto-generate this PROJECT_MAP.md from AST introspection.
-- **Functions:** should_process, extract_python_metadata, parse_graph, filepath_matches, main
-
-### `scripts/setup_models.sh`
-- **Type:** Shell script.
-- **Description:** Air-gap model setup for Ollama.
-
-### `scripts/run_e2e_tests.sh`
-- **Type:** Shell script.
-- **Description:** End-to-end test runner.
-
-## 4. Configuration & Infrastructure
+### `.env`
+- **Type:** Non-Python resource/config file.
 
 ### `.env.example`
-- **Type:** Environment configuration template (committed).
-- **Description:** All configurable settings with defaults and descriptions.
+- **Type:** Non-Python resource/config file.
+
+### `.gitignore`
+- **Type:** Non-Python resource/config file.
 
 ### `Dockerfile`
-- **Type:** Docker image definition for the FastAPI backend.
+- **Type:** Non-Python resource/config file.
 
-### `docker-compose.yml`
-- **Type:** Multi-container setup: FastAPI app + Ollama.
-- **Description:** Uses `env_file: .env` for configuration loading.
+### `PROJECT_MAP.md`
+- **Type:** Non-Python resource/config file.
 
-### `backend/requirements.txt`
-- **Type:** Python dependency list.
+### `README.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/conftest.py`
+- **Purpose:** Shared test fixtures for the JP→VI translation tool.
+- **Functions:** sample_jp_text, sample_vi_text, sample_mixed_text
 
 ### `backend/pytest.ini`
-- **Type:** Pytest configuration.
+- **Type:** Non-Python resource/config file.
 
-### `frontend/index.html`
-- **Type:** Single-page upload UI + progress tracker.
+### `backend/requirements.txt`
+- **Type:** Non-Python resource/config file.
+
+### `backend/server.log`
+- **Type:** Non-Python resource/config file.
+
+### `docker-compose.yml`
+- **Type:** Non-Python resource/config file.
 
 ### `docs/architecture.md`
-- **Type:** Architecture deep-dive documentation.
+- **Type:** Non-Python resource/config file.
+
+### `frontend/index.html`
+- **Type:** Non-Python resource/config file.
+
+### `samples/.DS_Store`
+- **Type:** Non-Python resource/config file.
+
+### `samples/01_requirements.md`
+- **Type:** Non-Python resource/config file.
+
+### `samples/API一覧.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/FreeBSD AI Hack Report (Japanese).pptx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/HROne様SSO構成.pdf`
+- **Type:** Non-Python resource/config file.
+
+### `samples/NDD_skill_sheet_20260408.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/japanese-ja.docx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/sample.txt`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translate_xlsx_zip.py`
+- **Purpose:** Translate xlsx at ZIP/XML level - FIXED version.
+- **Functions:** translate_shared_strings_via_regex, update_formula_refs, rename_sheets_in_workbook_via_regex, main
+
+### `samples/translated/01_requirements_vi.md`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/API一覧_vi.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/FreeBSD_AI_Hack_Report_vi.pptx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/NDD_skill_sheet_20260408_vi.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/japanese-vi.docx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/sample.txt`
+- **Type:** Non-Python resource/config file.
+
+### `samples/translated/【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510_vi.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/~$【基本設計書】ファイル定義書_書類提出依頼_20250520.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/~$【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/【基本設計書】ファイル定義書_書類提出依頼_20250520.xlsx`
+- **Type:** Non-Python resource/config file.
+
+### `samples/【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510.xlsx`
+- **Type:** Non-Python resource/config file.
+

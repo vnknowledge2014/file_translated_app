@@ -18,18 +18,19 @@ FastAPI Server ──→ Orchestrator Pipeline
   (Native OOXML)  (Ollama)     format-preserving
          └─────────────┼─────────────┘
                        ▼
-              Confidence Scorer  ──→  XLIFF Export (optional)
-                       │                    │
+              Confidence Scorer  ──→  In-App Review
+                       │              or XLIFF Export
                        ▼                    ▼
-                  Output File (_vi)    Bilingual .xlf (for review)
+                  Output File (_vi)    Bilingual .xlf
 ```
 
-### Pipeline (3 Phases)
+### Pipeline (4 Phases)
 
 | Phase | Engine | What it does |
 |:------|:-------|:-------------|
 | **Extract** | Deterministic Python (`zipfile`/`xml.etree`) | Walk XML trees, build inline-tag strings `<tagX>` → `segments[]` |
 | **Translate** | gemma4:e4b via Ollama | Batch translate JP→VI with Inline Tag preservation via Omni Skill rules |
+| **Review** | In-App Web Editor / CLI / CAT Tool | Assigns Confidence (HIGH/MEDIUM/LOW). Allows human editing of LOW/MEDIUM segments before final reconstruction. |
 | **Reconstruct** | Deterministic Python + Tag Validator | Catch hallucinated tags via RALPH loop. Zip clone original → replace text exactly |
 
 ### Key Design Principles
@@ -43,8 +44,9 @@ FastAPI Server ──→ Orchestrator Pipeline
 - **XLSX Integrity Protection** — regex-based byte surgery on `workbook.xml` preserves original namespace prefixes; cross-sheet formula references and `definedName` ranges auto-updated on sheet rename; `calcChain.xml` dropped with references cleaned from `[Content_Types].xml` and `workbook.xml.rels`; phonetic annotations globally stripped; drawing text translated via ET with direct serialization (bypassing `preserve_xml_declaration` to prevent inline xmlns loss).
 - **Environment-based configuration** — all settings externalized to `.env` file with sensible defaults; no `python-dotenv` dependency (custom loader).
 - **Single model** — one `gemma4:e4b` handles all translation locally via Ollama.
-- **XLIFF Bilingual Exchange** — dual-version (1.2 + 2.1) export/import for CAT tool integration (Trados, memoQ, OmegaT). Inline `<tagX>` mapped to XLIFF `<bpt>/<ept>` (1.2) or `<pc>` (2.1). State machine tracks segment lifecycle: new → translated → needs-review → final.
-- **Confidence Scoring** — multi-signal heuristic (JP leak, tag mismatch, length ratio, retry count, cache status) classifies segments into HIGH/MEDIUM/LOW buckets for adaptive human-in-the-loop triage.
+- **In-App Review Editor** — native web UI and CLI (TUI) for interacting with translated segments, editing them in a split-pane view with visual confidence cues, and triggering on-the-fly reconstruction without leaving the app.
+- **Confidence Scoring** — multi-signal heuristic (JP leak, tag mismatch, length ratio, retry count, cache status) classifies segments into HIGH/MEDIUM/LOW buckets for adaptive human-in-the-loop triage. Auto-approves HIGH segments.
+- **XLIFF Bilingual Exchange** — dual-version (1.2 + 2.1) export/import for strictly air-gapped or established CAT tool workflows (Trados, memoQ, OmegaT). Inline `<tagX>` mapped to XLIFF `<bpt>/<ept>` (1.2) or `<pc>` (2.1).
 
 ## Supported Formats
 
@@ -105,6 +107,9 @@ python scripts/translate_cli.py --dir samples/
 # Export bilingual XLIFF alongside output
 python scripts/translate_cli.py --file doc.docx --export-xliff
 python scripts/translate_cli.py --file doc.docx --export-xliff --xliff-version 2.1
+
+# Interactive CLI Review Editor
+python scripts/review_cli.py data/output/doc_vi.xlf
 
 # Import reviewed XLIFF (skip LLM entirely)
 python scripts/translate_cli.py --file doc.docx --import-xliff data/output/doc_vi.xlf
@@ -248,9 +253,11 @@ mvp_jp_vi/
 | Omni Skill | `inline_tag_translation_rule.md` loaded into LLM to prevent formatting tag loss |
 | Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation, triggers RALPH loop retry |
 | JP Leak Detector | CJK character regex detects untranslated Japanese in output, queues 1-by-1 retry with explicit anti-leak warnings |
-| Translation Cache | SQLite `translations.db` — segments with cached translations skip LLM call entirely |
+| Translation Cache | SQLite `translations.db` — segments with cached translations skip LLM call |
 | Glossary injection | User-defined `GlossaryTerm` table injected into system prompt as mandatory translation table |
 | Count mismatch fallback | Auto-retries 1-by-1 if batch `|||`-delimited response has wrong segment count |
+| Confidence Scoring | Adaptive triage into HIGH/MEDIUM/LOW buckets based on heuristics |
+| In-App Review | Integrated Web UI / Terminal TUI to edit LOW/MEDIUM segments before outputting |
 
 ## License
 

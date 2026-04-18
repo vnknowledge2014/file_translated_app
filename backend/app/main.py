@@ -56,11 +56,13 @@ from app.routes.upload import router as upload_router  # noqa: E402
 from app.routes.jobs import router as jobs_router  # noqa: E402
 from app.routes.download import router as download_router  # noqa: E402
 from app.routes.xliff import router as xliff_router  # noqa: E402
+from app.routes.segments import router as segments_router  # noqa: E402
 
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(jobs_router, prefix="/api", tags=["Jobs"])
 app.include_router(download_router, prefix="/api", tags=["Download"])
 app.include_router(xliff_router, prefix="/api", tags=["XLIFF"])
+app.include_router(segments_router, prefix="/api", tags=["Segments"])
 
 
 @app.get("/api/health")

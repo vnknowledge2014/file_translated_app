@@ -26,6 +26,7 @@ async def list_all_jobs(request: Request):
                 "progress_message": j.progress_message,
                 "error_message": j.error_message,
                 "segments_count": j.segments_count,
+                "xliff_path": getattr(j, "xliff_path", None),
                 "duration_seconds": j.duration_seconds,
                 "created_at": str(j.created_at) if j.created_at else None,
             }
@@ -57,6 +58,7 @@ async def get_job_detail(request: Request, job_id: str):
             "error_message": job.error_message,
             "segments_count": job.segments_count,
             "output_path": job.output_path,
+            "xliff_path": getattr(job, "xliff_path", None),
             "duration_seconds": job.duration_seconds,
             "created_at": str(job.created_at) if job.created_at else None,
             "updated_at": str(job.updated_at) if job.updated_at else None,

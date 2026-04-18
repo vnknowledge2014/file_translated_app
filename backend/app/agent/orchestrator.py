@@ -162,13 +162,13 @@ class Orchestrator:
             # ── XLIFF EXPORT (if requested) ──
             xliff_path = None
             if export_xliff_flag:
-                self._emit("exporting", 0.79, "Exporting bilingual XLIFF...")
+                self._emit("exporting", 0.79, f"Exporting bilingual XLIFF {xliff_version}...")
                 xliff_path = output_path.rsplit(".", 1)[0] + ".xlf"
                 export_xliff(
                     segments, os.path.basename(file_path), file_type,
                     xliff_path, version=xliff_version,
                 )
-                logger.info(f"[{job_id}] XLIFF exported → {xliff_path}")
+                logger.info(f"[{job_id}] XLIFF {xliff_version} exported → {xliff_path}")
 
             # ── PHASE 3: RECONSTRUCTING (deterministic) ──
             self._emit("reconstructing", 0.8, "Rebuilding file...")
@@ -201,6 +201,7 @@ class Orchestrator:
                 "duration_seconds": duration,
                 "error": None,
                 "confidence_stats": stats,
+                "_segments": segments,  # For Review Editor DB persistence
             }
             if xliff_path:
                 result["xliff_path"] = xliff_path

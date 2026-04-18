@@ -6,10 +6,10 @@ import os
 import shutil
 import time
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Request, UploadFile, Form
 
 from app.config import settings
-from app.database import create_job, update_job_status
+from app.database import create_job, update_job_status, save_segments
 from app.ollama.client import OllamaClient
 from app.utils.file_detect import detect_file_type
 
@@ -29,7 +29,7 @@ def _on_pipeline_done(task: asyncio.Task) -> None:
         logger.error(f"Pipeline task crashed with unhandled exception: {exc}", exc_info=exc)
 
 
-async def _run_pipeline(app, job_id: str, file_path: str, file_type: str, filename: str):
+async def _run_pipeline(app, job_id: str, file_path: str, file_type: str, filename: str, export_xliff: bool, xliff_version: str = "2.1"):
     """Background task — runs the Orchestrator pipeline for a job.
 
     Uses a fresh OllamaClient per pipeline run to avoid shared state
@@ -93,6 +93,8 @@ async def _run_pipeline(app, job_id: str, file_path: str, file_type: str, filena
             file_type=file_type,
             job_id=job_id,
             output_path=output_path,
+            export_xliff_flag=export_xliff,
+            xliff_version=xliff_version,
         )
 
         # CRITICAL: Await ALL pending progress callbacks before final write
@@ -116,12 +118,22 @@ async def _run_pipeline(app, job_id: str, file_path: str, file_type: str, filena
                 progress=final_progress,
                 progress_message=final_msg,
                 output_path=result.get("output_path"),
+                xliff_path=result.get("xliff_path"),
                 segments_count=result.get("segments_count"),
                 duration_seconds=result.get("duration_seconds"),
                 error_message=result.get("error"),
             )
 
         logger.info(f"[{job_id}] Pipeline finished: {result['status']}")
+
+        # Save segments to DB for Review Editor
+        if result["status"] == "completed" and result.get("_segments"):
+            try:
+                async with app.state.db_session_factory() as session:
+                    await save_segments(session, job_id, result["_segments"])
+                logger.info(f"[{job_id}] Saved {len(result['_segments'])} segments for review")
+            except Exception as seg_err:
+                logger.warning(f"[{job_id}] Failed to save segments: {seg_err}")
 
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}"
@@ -142,7 +154,12 @@ async def _run_pipeline(app, job_id: str, file_path: str, file_type: str, filena
 
 
 @router.post("/upload")
-async def upload_file(request: Request, file: UploadFile = File(...)):
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    export_xliff: bool = Form(False),
+    xliff_version: str = Form("2.1")
+):
     """Upload a document for translation.
 
     Validates file type, saves to upload dir, creates job record,
@@ -176,7 +193,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     # Kick off pipeline in background with proper task tracking
     task = asyncio.create_task(
-        _run_pipeline(request.app, job_id, upload_path, file_type, file.filename or "unknown"),
+        _run_pipeline(request.app, job_id, upload_path, file_type, file.filename or "unknown", export_xliff, xliff_version),
         name=f"pipeline-{job_id}",
     )
     _active_tasks.add(task)

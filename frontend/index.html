@@ -445,6 +445,146 @@
             font-size: 0.75rem;
         }
 
+        /* ── Review Editor ── */
+        .editor-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: var(--bg-primary);
+            overflow-y: auto;
+        }
+        .editor-overlay.active { display: block; }
+        .editor-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .editor-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-glass);
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .editor-topbar h2 { font-size: 1.1rem; font-weight: 600; }
+        .editor-topbar-actions { display: flex; gap: 8px; align-items: center; }
+        .editor-btn {
+            padding: 8px 18px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-glass);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .editor-btn:hover { border-color: var(--accent-blue); }
+        .editor-btn.primary { background: var(--gradient-primary); border: none; color: #fff; font-weight: 600; }
+        .editor-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
+        .editor-layout {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 20px;
+        }
+        .editor-sidebar {
+            position: sticky;
+            top: 24px;
+            align-self: start;
+        }
+        .editor-stats {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 16px;
+            backdrop-filter: blur(12px);
+        }
+        .editor-stats h4 { font-size: 0.85rem; margin-bottom: 12px; color: var(--text-secondary); }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.82rem; }
+        .stat-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .stat-dot.high { background: var(--accent-emerald); }
+        .stat-dot.medium { background: #f59e0b; }
+        .stat-dot.low { background: var(--accent-rose); }
+        .filter-select {
+            width: 100%;
+            margin-top: 12px;
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-glass);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.82rem;
+        }
+        .seg-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .seg-table th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-secondary);
+            padding: 10px 12px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            text-align: left;
+            border-bottom: 1px solid var(--border-glass);
+            z-index: 2;
+        }
+        .seg-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 0.85rem;
+            vertical-align: top;
+        }
+        .seg-table tr.conf-high { background: rgba(16,185,129,0.06); }
+        .seg-table tr.conf-medium { background: rgba(245,158,11,0.08); }
+        .seg-table tr.conf-low { background: rgba(244,63,94,0.08); }
+        .seg-table tr.conf-low td:first-child::after { content: ' ⚠'; color: var(--accent-rose); }
+        .seg-table tr.edited { background: rgba(59,130,246,0.1); }
+        .seg-source { color: var(--text-secondary); font-family: 'Noto Sans JP', sans-serif; }
+        .seg-edit {
+            width: 100%;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            padding: 4px 6px;
+            resize: vertical;
+            min-height: 28px;
+            transition: border-color 0.2s;
+        }
+        .seg-edit:focus { border-color: var(--accent-blue); outline: none; background: rgba(59,130,246,0.05); }
+        .conf-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 100px;
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+        .conf-badge.high { background: rgba(16,185,129,0.2); color: #34d399; }
+        .conf-badge.medium { background: rgba(245,158,11,0.2); color: #fbbf24; }
+        .conf-badge.low { background: rgba(244,63,94,0.2); color: #fb7185; }
+        .seg-status-badge { font-size: 0.72rem; color: var(--text-muted); }
+        .seg-idx { color: var(--text-muted); font-size: 0.78rem; min-width: 30px; }
+        .editor-footer {
+            display: flex;
+            justify-content: center;
+            padding: 24px 0;
+            gap: 12px;
+        }
+        @media (max-width: 768px) {
+            .editor-layout { grid-template-columns: 1fr; }
+            .editor-sidebar { position: static; }
+        }
+
         #file-input { display: none; }
     </style>
 </head>
@@ -474,6 +614,17 @@
                 <span class="file-type-badge">MD</span>
             </div>
             <input type="file" id="file-input" accept=".docx,.xlsx,.pptx,.pdf,.csv,.txt,.md">
+            
+            <div style="margin-top: 20px; font-size: 0.9rem; z-index: 2; position: relative;" id="export-xliff-wrapper">
+                <label style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <input type="checkbox" id="export-xliff-cb">
+                    Tùy chọn: Sinh thêm file .xlf để Review
+                    <select id="xliff-version-select" style="padding: 2px 6px; border-radius: 4px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-glass);">
+                        <option value="2.1">Phiên bản: 2.1 (Mới)</option>
+                        <option value="1.2">Phiên bản: 1.2 (Cũ - Trados/memoQ)</option>
+                    </select>
+                </label>
+            </div>
         </div>
 
         <div id="jobs-container"></div>
@@ -508,7 +659,10 @@
     const PHASES = ['planning', 'extracting', 'translating', 'reconstructing', 'verifying'];
 
     // ── Drag & Drop ──
-    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('click', (e) => {
+        if (e.target.closest('#export-xliff-wrapper')) return;
+        fileInput.click();
+    });
     uploadZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         uploadZone.classList.add('dragover');
@@ -527,6 +681,8 @@
     async function uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('export_xliff', document.getElementById('export-xliff-cb').checked);
+        formData.append('xliff_version', document.getElementById('xliff-version-select').value);
 
         try {
             const resp = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: formData });
@@ -574,7 +730,7 @@
         jobsContainer.prepend(card);
     }
 
-    function updateJobCard(jobId, status, progress, message) {
+    function updateJobCard(jobId, status, progress, message, xliffPath = null) {
         const statusEl = document.getElementById(`status-${jobId}`);
         const progressEl = document.getElementById(`progress-${jobId}`);
         const msgEl = document.getElementById(`msg-${jobId}`);
@@ -612,11 +768,24 @@
         if (status === 'completed') {
             const actionsEl = document.getElementById(`actions-${jobId}`);
             if (actionsEl) {
-                actionsEl.innerHTML = `
+                let html = `
                     <a class="download-btn" href="${API_BASE}/api/download/${jobId}">
                         ⬇️ Tải file đã dịch
                     </a>
                 `;
+                if (xliffPath) {
+                    html += `
+                    <a class="download-btn" href="${API_BASE}/api/download/${jobId}?xliff=true" style="margin-left: 8px;">
+                        📝 Tải file XLIFF
+                    </a>
+                    `;
+                }
+                html += `
+                    <button class="download-btn" onclick="openEditor('${jobId}')" style="margin-left: 8px; background: linear-gradient(135deg, #10b981, #06b6d4);">
+                        ✏️ Review & Sửa
+                    </button>
+                `;
+                actionsEl.innerHTML = html;
             }
         }
     }
@@ -636,7 +805,8 @@
                     clearInterval(interval);
                     if (data.status === 'completed') {
                         updateJobCard(jobId, 'completed', 1.0,
-                            `Hoàn thành! ${data.segments_count || 0} đoạn, ${(data.duration_seconds || 0).toFixed(1)}s`
+                            `Hoàn thành! ${data.segments_count || 0} đoạn, ${(data.duration_seconds || 0).toFixed(1)}s`,
+                            data.xliff_path
                         );
                     } else {
                         updateJobCard(jobId, 'failed', 0, data.error_message || 'Lỗi không xác định');
@@ -761,6 +931,207 @@
             xliffSubmitBtn.style.opacity = '';
         }, 3000);
     });
+    // ═══════════════════════════════════════════
+    // ── REVIEW EDITOR ──
+    // ═══════════════════════════════════════════
+    let _editorJobId = null;
+    let _editorSegments = [];
+    let _saveTimers = {};
+
+    async function openEditor(jobId) {
+        _editorJobId = jobId;
+        document.getElementById('editor-overlay').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        await loadEditorSegments();
+    }
+
+    function closeEditor() {
+        document.getElementById('editor-overlay').classList.remove('active');
+        document.body.style.overflow = '';
+        _editorJobId = null;
+    }
+
+    async function loadEditorSegments(filter) {
+        if (!_editorJobId) return;
+        const url = filter ? `${API_BASE}/api/jobs/${_editorJobId}/segments?filter=${filter}` : `${API_BASE}/api/jobs/${_editorJobId}/segments`;
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            if (data.error) { alert(data.error); return; }
+            _editorSegments = data.segments;
+            document.getElementById('editor-title').textContent = `✏️ Review — ${data.filename}`;
+            renderEditorStats();
+            renderEditorTable();
+        } catch(e) { alert('Lỗi tải segments: ' + e.message); }
+    }
+
+    function renderEditorStats() {
+        const segs = _editorSegments;
+        const high = segs.filter(s => s.confidence >= 0.85).length;
+        const low = segs.filter(s => s.confidence < 0.60).length;
+        const med = segs.length - high - low;
+        const edited = segs.filter(s => s.status === 'edited').length;
+        const pending = segs.filter(s => s.status === 'pending').length;
+        document.getElementById('editor-stat-high').textContent = high;
+        document.getElementById('editor-stat-med').textContent = med;
+        document.getElementById('editor-stat-low').textContent = low;
+        document.getElementById('editor-stat-review').textContent = `${pending} đoạn cần review`;
+        document.getElementById('editor-stat-edited').textContent = edited > 0 ? `(${edited} đã sửa)` : '';
+    }
+
+    function renderEditorTable() {
+        const tbody = document.getElementById('editor-tbody');
+        if (!_editorSegments.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:40px;">Không tìm thấy đoạn nào</td></tr>';
+            return;
+        }
+        tbody.innerHTML = _editorSegments.map(s => {
+            const confClass = s.confidence >= 0.85 ? 'high' : s.confidence >= 0.60 ? 'medium' : 'low';
+            const rowClass = s.status === 'edited' ? 'edited' : `conf-${confClass}`;
+            const display = s.edited || s.target || '';
+            return `<tr class="${rowClass}" data-idx="${s.index}">
+                <td class="seg-idx">${s.index + 1}</td>
+                <td class="seg-source">${escHtml(s.source)}</td>
+                <td><textarea class="seg-edit" data-idx="${s.index}" rows="1" onfocus="autoGrow(this)" oninput="autoGrow(this);debounceSave(${s.index},this.value)" onblur="autoGrow(this)">${escHtml(display)}</textarea></td>
+                <td><span class="conf-badge ${confClass}">${(s.confidence*100).toFixed(0)}%</span></td>
+                <td class="seg-status-badge">${s.status}</td>
+            </tr>`;
+        }).join('');
+        // Auto-grow all textareas
+        tbody.querySelectorAll('.seg-edit').forEach(ta => autoGrow(ta));
+    }
+
+    function escHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function autoGrow(el) {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+    }
+
+    function debounceSave(idx, value) {
+        if (_saveTimers[idx]) clearTimeout(_saveTimers[idx]);
+        _saveTimers[idx] = setTimeout(() => saveSegment(idx, value), 400);
+    }
+
+    async function saveSegment(idx, value) {
+        try {
+            await fetch(`${API_BASE}/api/jobs/${_editorJobId}/segments/${idx}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({edited: value}),
+            });
+            // Update local state
+            const seg = _editorSegments.find(s => s.index === idx);
+            if (seg) { seg.edited = value; seg.status = 'edited'; }
+            renderEditorStats();
+            // Update row class
+            const row = document.querySelector(`tr[data-idx="${idx}"]`);
+            if (row) row.className = 'edited';
+        } catch(e) { console.error('Save failed:', e); }
+    }
+
+    async function approveAllHigh() {
+        try {
+            const resp = await fetch(`${API_BASE}/api/jobs/${_editorJobId}/segments/approve-all`, {method:'POST'});
+            const data = await resp.json();
+            alert(`Đã duyệt ${data.approved} đoạn HIGH confidence`);
+            await loadEditorSegments(document.getElementById('editor-filter').value || undefined);
+        } catch(e) { alert('Lỗi: ' + e.message); }
+    }
+
+    async function reconstructFromEditor() {
+        const btn = document.getElementById('editor-reconstruct-btn');
+        btn.textContent = '⏳ Đang xây dựng file...';
+        btn.style.opacity = '0.7';
+        try {
+            const resp = await fetch(`${API_BASE}/api/jobs/${_editorJobId}/segments/reconstruct`, {method:'POST'});
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const cd = resp.headers.get('content-disposition');
+                const fn = cd ? cd.split('filename=')[1]?.replace(/"/g,'') : 'reviewed.docx';
+                a.href = url; a.download = fn; a.click();
+                URL.revokeObjectURL(url);
+                btn.textContent = '✅ Đã tải!';
+            } else {
+                const data = await resp.json();
+                alert(data.error || 'Lỗi reconstruct');
+                btn.textContent = '❌ Lỗi';
+            }
+        } catch(e) {
+            alert('Lỗi: ' + e.message);
+            btn.textContent = '❌ Lỗi';
+        }
+        setTimeout(() => { btn.textContent = '💾 Lưu & Xuất File'; btn.style.opacity = ''; }, 3000);
+    }
+
+    // Filter handler
+    document.getElementById('editor-filter').addEventListener('change', (e) => {
+        const val = e.target.value;
+        loadEditorSegments(val || undefined);
+    });
+
+    // Keyboard shortcut: Ctrl+S to save
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 's' && _editorJobId) {
+            e.preventDefault();
+            // All saves are auto via debounce, just show feedback
+        }
+    });
     </script>
+
+    <!-- Review Editor Overlay -->
+    <div class="editor-overlay" id="editor-overlay">
+        <div class="editor-container">
+            <div class="editor-topbar">
+                <h2 id="editor-title">✏️ Review</h2>
+                <div class="editor-topbar-actions">
+                    <button class="editor-btn" onclick="approveAllHigh()">✅ Duyệt tất cả HIGH</button>
+                    <button class="editor-btn primary" id="editor-reconstruct-btn" onclick="reconstructFromEditor()">💾 Lưu & Xuất File</button>
+                    <button class="editor-btn" onclick="closeEditor()">✕ Đóng</button>
+                </div>
+            </div>
+            <div class="editor-layout">
+                <aside class="editor-sidebar">
+                    <div class="editor-stats">
+                        <h4>📊 Thống kê</h4>
+                        <div class="stat-row"><span><span class="stat-dot high"></span>HIGH</span><span id="editor-stat-high">0</span></div>
+                        <div class="stat-row"><span><span class="stat-dot medium"></span>MEDIUM</span><span id="editor-stat-med">0</span></div>
+                        <div class="stat-row"><span><span class="stat-dot low"></span>LOW</span><span id="editor-stat-low">0</span></div>
+                        <hr style="border:none;border-top:1px solid var(--border-glass);margin:10px 0;">
+                        <div style="font-size:0.8rem;color:var(--accent-cyan);" id="editor-stat-review">0 đoạn cần review</div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);" id="editor-stat-edited"></div>
+                        <select class="filter-select" id="editor-filter">
+                            <option value="">Tất cả</option>
+                            <option value="pending">🟡 Cần review</option>
+                            <option value="pending,edited">Pending + Đã sửa</option>
+                            <option value="edited">✏️ Đã sửa</option>
+                            <option value="approved">✅ Đã duyệt</option>
+                        </select>
+                    </div>
+                </aside>
+                <main>
+                    <table class="seg-table">
+                        <thead><tr>
+                            <th>#</th>
+                            <th style="width:40%;">Tiếng Nhật (Gốc)</th>
+                            <th style="width:40%;">Tiếng Việt (Dịch)</th>
+                            <th>Conf</th>
+                            <th>Status</th>
+                        </tr></thead>
+                        <tbody id="editor-tbody"></tbody>
+                    </table>
+                </main>
+            </div>
+            <div class="editor-footer">
+                <button class="editor-btn" onclick="closeEditor()">✕ Đóng Editor</button>
+                <button class="editor-btn primary" onclick="reconstructFromEditor()">💾 Lưu & Xuất File</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

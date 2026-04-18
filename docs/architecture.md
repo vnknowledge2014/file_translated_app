@@ -42,15 +42,14 @@ See `README.md` → Configuration section for the full settings table.
 ## Pipeline — Adaptive 5-Phase Architecture
 
 ```
-Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ [SCORE] ──→ [XLIFF] ──→ [RECONSTRUCT] ──→ Output File
-               XML Zip Scan   with text      LLM call      Confidence   Export/      Zip Clone       _vi.ext
-               No wrapper     originals      gemma4:e4b     0.0–1.0      Import       No corruption
+Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ [SCORE] ──→ [REVIEW] ──→ [RECONSTRUCT] ──→ Output File
+               XML Zip Scan   with text      LLM call      Confidence   Web Editor   Zip Clone       _vi.ext
+               No wrapper     originals      gemma4:e4b     0.0–1.0      or XLIFF     No corruption
                                                │              │
                                          cache lookup    HIGH → auto-approve
-                                      (translations.db)  LOW  → needs-review → .xlf for CAT tools
-```
+                                      (translations.db)  LOW  → needs human edit
 
-> **Note**: The SCORE and XLIFF phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely — reviewed translations from a CAT tool are merged directly into segments before reconstruction.
+> **Note**: The SCORE and REVIEW phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely — reviewed translations from a CAT tool are merged directly into segments before reconstruction.
 
 ### Phase 1: EXTRACT (Deterministic)
 
@@ -140,7 +139,15 @@ After translation, segments can be exported to **XLIFF** (XML Localization Inter
 | Inline tags | `<bpt>`/`<ept>`, `<x/>` | `<pc>`, `<ph/>` |
 | CAT compatibility | Universal (Trados, memoQ, OmegaT, Phrase) | Partial |
 
-Import auto-detects version from root element. Export defaults to 1.2.
+Import auto-detects version from root element. Export allows user to explicitly choose `1.2` or `2.1` via UI or CLI (`--xliff-version`).
+
+### In-App Review Editor (Web / CLI)
+
+Instead of relying solely on external CAT tools, the system provides a native **In-App Review Editor**:
+- **SQLite Storage**: Translated segments are persisted to `segment_reviews` table.
+- **Web Editor**: A split-pane grid UI highlighting LOW/MEDIUM segments with debounced auto-save.
+- **CLI TUI**: `python scripts/review_cli.py` allows pure ANSI terminal-based review.
+- **Direct Reconstruction**: Users can edit and instantly click "Lưu & Xuất File" to trigger document reconstruction directly from the edited segments.
 
 ### Inline Tag Mapping
 
@@ -282,6 +289,24 @@ glossary
 }
 ```
 
+### GET `/api/jobs/{job_id}/segments`
+```json
+// Fetch translated segments for In-App Review Editor (supports ?filter=pending,edited)
+{
+  "job_id": "abc123...",
+  "total": 42,
+  "segments": [
+    { "index": 0, "source": "こんにちは", "target": "Xin chào", "edited": null, "confidence": 0.95, "status": "approved" }
+  ]
+}
+```
+
+### PUT `/api/jobs/{job_id}/segments/{index}`
+Update a segment's translation directly from the Web Editor.
+
+### POST `/api/jobs/{job_id}/segments/reconstruct`
+Triggers Phase 3 reconstruction using human-edited segments from the DB, bypassing XLIFF export/import.
+
 ### GET `/api/download/{job_id}`
 Binary file download of the translated output. Response filename follows the pattern `original_vi.ext`.
 
@@ -318,7 +343,8 @@ Workflow: Extract segments from original → Import translations from XLIFF → 
 | Per-file-type context | Format-specific prompt extensions guide LLM behavior (e.g., "PRESERVE ALL markup" for Markdown) |
 | Hallucinated prefix strip | Plaintext reconstructor strips duplicate Markdown prefixes (`#`, `-`, `>`) and trailing pipes that LLM may hallucinate into translations |
 | **Confidence Scoring** | Multi-signal heuristic (JP leak -0.5, tag mismatch -0.4, length anomaly -0.3, retry -0.1, cache +0.2) classifies segments into HIGH/MEDIUM/LOW for adaptive review triage |
-| **XLIFF Exchange** | Bilingual .xlf export enables human review in CAT tools (Trados, memoQ, OmegaT); reviewed XLIFF import skips LLM entirely for human-corrected output |
+| **In-App Review** | Web UI and CLI TUI allow direct editing of LOW/MEDIUM confidence segments before reconstruction |
+| **XLIFF Exchange** | Bilingual .xlf export (v1.2 or v2.1) enables human review in CAT tools; reviewed XLIFF import skips LLM entirely |
 
 ---
 

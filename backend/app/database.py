@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.models import Base, GlossaryTerm, Job, JobAttempt
+from app.models import Base, GlossaryTerm, Job, JobAttempt, SegmentReview
 
 
 async def init_db(database_url: str) -> tuple:
@@ -188,3 +188,118 @@ async def list_jobs(session: AsyncSession, limit: int = 20) -> list[Job]:
         select(Job).order_by(Job.created_at.desc()).limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def save_segments(
+    session: AsyncSession,
+    job_id: str,
+    segments: list[dict],
+    high_threshold: float = 0.85,
+) -> None:
+    """Bulk-save translated segments for Review Editor.
+
+    Args:
+        session: Async database session.
+        job_id: Parent job UUID.
+        segments: List of segment dicts from the pipeline.
+        high_threshold: Confidence above this is auto-approved.
+    """
+    for idx, seg in enumerate(segments):
+        source = seg.get("text", "").strip()
+        if not source:
+            continue
+        target = seg.get("translated_text", "")
+        confidence = seg.get("confidence", 0.0)
+        status = "approved" if confidence >= high_threshold else "pending"
+        review = SegmentReview(
+            job_id=job_id,
+            index=idx,
+            source=source,
+            target=target,
+            confidence=confidence,
+            status=status,
+            location=seg.get("location", ""),
+        )
+        session.add(review)
+    await session.commit()
+
+
+async def get_segments(
+    session: AsyncSession,
+    job_id: str,
+    filter_status: str | None = None,
+) -> list[SegmentReview]:
+    """Get segments for a job, optionally filtered by status.
+
+    Args:
+        session: Async database session.
+        job_id: Parent job UUID.
+        filter_status: Optional comma-separated statuses (e.g. "pending,edited").
+
+    Returns:
+        List of SegmentReview instances ordered by index.
+    """
+    query = select(SegmentReview).where(SegmentReview.job_id == job_id)
+    if filter_status:
+        statuses = [s.strip() for s in filter_status.split(",")]
+        query = query.where(SegmentReview.status.in_(statuses))
+    query = query.order_by(SegmentReview.index)
+    result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+async def update_segment(
+    session: AsyncSession,
+    job_id: str,
+    index: int,
+    edited_text: str,
+) -> SegmentReview | None:
+    """Update a single segment's edited text.
+
+    Args:
+        session: Async database session.
+        job_id: Parent job UUID.
+        index: Segment index.
+        edited_text: New translated text from the reviewer.
+
+    Returns:
+        Updated SegmentReview or None if not found.
+    """
+    result = await session.execute(
+        select(SegmentReview).where(
+            SegmentReview.job_id == job_id,
+            SegmentReview.index == index,
+        )
+    )
+    seg = result.scalar_one_or_none()
+    if seg:
+        seg.edited = edited_text
+        seg.status = "edited"
+        await session.commit()
+        await session.refresh(seg)
+    return seg
+
+
+async def approve_high_segments(
+    session: AsyncSession,
+    job_id: str,
+    threshold: float = 0.85,
+) -> int:
+    """Approve all HIGH-confidence segments in bulk.
+
+    Returns:
+        Number of segments approved.
+    """
+    result = await session.execute(
+        select(SegmentReview).where(
+            SegmentReview.job_id == job_id,
+            SegmentReview.confidence >= threshold,
+            SegmentReview.status == "pending",
+        )
+    )
+    segments = list(result.scalars().all())
+    for seg in segments:
+        seg.status = "approved"
+    await session.commit()
+    return len(segments)
+
