@@ -162,6 +162,20 @@ def _strip_phonetic(si_element: ET.Element) -> None:
             si_element.remove(child)
 
 
+def _strip_all_phonetics(root: ET.Element) -> None:
+    """Strip ALL <rPh> and <phoneticPr> from every <si> in the tree.
+
+    _strip_phonetic is called per-paragraph by replace_paragraph_runs,
+    but only for entries that matched a translation. Entries that didn't
+    match (unchanged JP text) still carry phoneticPr with indices that
+    may become invalid after other entries are modified, causing Excel
+    to flag the file as corrupted.
+    """
+    si_tag = f"{{{NS['main']}}}si"
+    for si in root.iter(si_tag):
+        _strip_phonetic(si)
+
+
 # ── Font patching ──
 
 
@@ -321,6 +335,51 @@ def _process_drawing(buffer: bytes, sheet_name_map: dict[str, str]) -> bytes:
     return buffer
 
 
+def _process_drawing_text(buffer: bytes, tmap: dict[str, str]) -> tuple[bytes, int]:
+    """Replace translated text in drawing XML using regex (not ET).
+
+    Drawings use inline xmlns declarations (mc:, a14:, a16:) on child elements
+    rather than the root element. ET parse → serialize strips these inline
+    declarations, producing invalid XML that causes Excel corruption.
+
+    This function uses regex byte surgery to replace <a:t> text content
+    directly, preserving all original XML structure and namespaces.
+
+    Returns:
+        Tuple of (modified buffer, replacement count).
+    """
+    replaced = 0
+    try:
+        buf_str = buffer.decode('utf-8')
+        changed = buf_str
+
+        # Match <a:t ...>text</a:t> or <a:t>text</a:t>
+        def _replace_t(m):
+            nonlocal replaced
+            text = m.group(2)
+            if not text or not text.strip():
+                return m.group(0)
+            trans = replace_in_text(text.strip(), tmap)
+            if trans:
+                replaced += 1
+                return f"{m.group(1)}{trans}</a:t>"
+            return m.group(0)
+
+        changed = re.sub(
+            r'(<a:t[^>]*>)([^<]+)</a:t>',
+            _replace_t,
+            changed,
+        )
+
+        if changed != buf_str:
+            buffer = changed.encode('utf-8')
+
+    except Exception as e:
+        logger.error(f"Error processing drawing text: {e}")
+
+    return buffer, replaced
+
+
 # ── Main entry point ──
 
 
@@ -362,6 +421,27 @@ def reconstruct_xlsx(
             if fn == 'xl/calcChain.xml':
                 continue
 
+            # ── Clean calcChain references from Content_Types and rels ──
+            # When we drop calcChain.xml, references to it in these files
+            # cause Excel to report corruption ("file not found").
+            if fn == '[Content_Types].xml':
+                buf_str = buffer.decode('utf-8')
+                buf_str = re.sub(
+                    r'<Override[^>]*PartName="/xl/calcChain\.xml"[^>]*/>', '', buf_str
+                )
+                buffer = buf_str.encode('utf-8')
+                zout.writestr(item, buffer)
+                continue
+
+            if fn == 'xl/_rels/workbook.xml.rels':
+                buf_str = buffer.decode('utf-8')
+                buf_str = re.sub(
+                    r'<Relationship[^>]*Target="calcChain\.xml"[^>]*/>', '', buf_str
+                )
+                buffer = buf_str.encode('utf-8')
+                zout.writestr(item, buffer)
+                continue
+
             # ── Workbook.xml: sheet name translation ──
             if fn == 'xl/workbook.xml':
                 buffer, wb_replaced = _patch_workbook_xml(buffer, tmap, sheet_name_map)
@@ -388,38 +468,75 @@ def reconstruct_xlsx(
                     zout.writestr(item, buffer)
                     continue
 
-            # ── Drawing/chart: sheet ref fixing ──
+            # ── Drawing/chart: sheet ref fixing + text replacement ──
+            # Drawings use ET for paragraph-level text aggregation (needed for
+            # multi-run text matching), but serialize via ET.tostring() directly
+            # instead of preserve_xml_declaration(). Drawings have inline xmlns
+            # (mc:, a14:, a16:) that ET hoists to the root element during
+            # serialization — this is valid XML. preserve_xml_declaration()
+            # would replace ET's root (with xmlns) with the original root
+            # (without xmlns), causing corruption.
             if is_drawing:
                 buffer = _process_drawing(buffer, sheet_name_map)
+                try:
+                    register_document_namespaces(buffer)
+                    root = ET.fromstring(buffer)
 
-            # ── XML text replacement (sharedStrings, inline strings, drawings) ──
-            if is_shared_strings or (is_worksheet and b'inlineStr' in buffer) or is_drawing:
+                    para_tag = f"{{{NS['a']}}}p"
+                    r_tag = f"{{{NS['a']}}}r"
+                    t_tag = f"{{{NS['a']}}}t"
+                    ns_key = 'a'
+
+                    count = replace_paragraph_runs(
+                        root, tmap, para_tag, r_tag, t_tag, ns_key,
+                    )
+                    if count > 0:
+                        # Extract original XML declaration
+                        raw_str = buffer.decode('utf-8')
+                        xml_decl = ''
+                        if raw_str.startswith('<?xml'):
+                            decl_end = raw_str.find('?>') + 2
+                            xml_decl = raw_str[:decl_end]
+                        if not xml_decl:
+                            xml_decl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                        # Use ET.tostring directly (xmlns hoisted to root = valid)
+                        et_xml = ET.tostring(root, encoding='unicode', xml_declaration=False)
+                        et_xml = et_xml.replace(' />', '/>')
+                        buffer = (xml_decl + '\r\n' + et_xml).encode('utf-8')
+                        replaced += count
+
+                except Exception as e:
+                    logger.error(f"Error parsing drawing XML {fn}: {e}")
+                zout.writestr(item, buffer)
+                continue
+
+            # ── XML text replacement (sharedStrings, inline worksheet strings) ──
+            if is_shared_strings or (is_worksheet and b'inlineStr' in buffer):
                 try:
                     register_document_namespaces(buffer)
                     root = ET.fromstring(buffer)
 
                     if is_shared_strings:
                         para_tag = f"{{{NS['main']}}}si"
-                    elif is_worksheet:
+                    else:
                         para_tag = f"{{{NS['main']}}}is"
-                    else:
-                        # Drawings use drawingML namespace
-                        para_tag = f"{{{NS['a']}}}p"
 
-                    if is_drawing:
-                        r_tag = f"{{{NS['a']}}}r"
-                        t_tag = f"{{{NS['a']}}}t"
-                        ns_key = 'a'
-                    else:
-                        r_tag = f"{{{NS['main']}}}r"
-                        t_tag = f"{{{NS['main']}}}t"
-                        ns_key = 'main'
+                    r_tag = f"{{{NS['main']}}}r"
+                    t_tag = f"{{{NS['main']}}}t"
+                    ns_key = 'main'
 
                     count = replace_paragraph_runs(
                         root, tmap, para_tag, r_tag, t_tag, ns_key,
                         strip_phonetic_fn=_strip_phonetic,
                     )
-                    if count > 0:
+
+                    # For sharedStrings: also strip orphaned phoneticPr from
+                    # entries that weren't translated (replace_paragraph_runs
+                    # only strips from entries it actually modified).
+                    if is_shared_strings:
+                        _strip_all_phonetics(root)
+
+                    if count > 0 or is_shared_strings:
                         buffer = preserve_xml_declaration(root, buffer)
                         replaced += count
 

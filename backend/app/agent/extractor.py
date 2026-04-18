@@ -10,6 +10,7 @@ import logging
 import os
 import re
 
+from app.config import settings
 from app.utils.japanese import has_japanese
 
 logger = logging.getLogger(__name__)
@@ -94,10 +95,10 @@ _DOCX_FOOTNOTE_PAT = re.compile(r'^\[\d+\]$')
 # Max inline tags per segment before stripping tags for plain-text translation.
 # LLM reliably handles ≤8 tags but consistently fails tag validation at >8,
 # causing entire paragraphs to remain untranslated.
-_MAX_INLINE_TAGS = 8
+_MAX_INLINE_TAGS = settings.MAX_INLINE_TAGS
 
 # Max chars per segment before splitting at sentence boundaries
-_MAX_SEG_CHARS = 400
+_MAX_SEG_CHARS = settings.MAX_SEGMENT_CHARS
 _JP_SENTENCE_END = re.compile(r'(?<=[。！？])\s*')
 
 

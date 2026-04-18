@@ -10,14 +10,14 @@ services:
       - app-data:/data
       - ./frontend:/app/frontend:ro
     environment:
+      # Docker-specific overrides (these take priority over .env)
       - OLLAMA_URL=http://ollama:11434
-      - MODEL=gemma4:e4b
       - DATABASE_URL=sqlite:///data/db/translations.db
       - UPLOAD_DIR=/data/uploads
       - OUTPUT_DIR=/data/output
       - TEMP_DIR=/data/temp
-      - MAX_WORKERS=1
-      - MAX_CONCURRENT_BATCHES=4
+    env_file:
+      - .env
     depends_on:
       ollama:
         condition: service_healthy

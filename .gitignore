@@ -4,6 +4,9 @@ vendor/
 target/
 venv/
 
+# Environment config (local overrides — .env.example is committed)
+.env
+
 # Python
 __pycache__/
 *.pyc

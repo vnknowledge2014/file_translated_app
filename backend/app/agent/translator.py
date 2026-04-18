@@ -14,6 +14,8 @@ import re
 
 import aiosqlite
 
+from app.config import settings
+
 from app.ollama.client import OllamaClient
 from app.ollama.exceptions import OllamaTimeoutError
 
@@ -132,9 +134,13 @@ def build_glossary_prompt(terms: list[dict]) -> str:
 
 def chunk_segments(
     segments: list[dict],
-    max_chars: int = 3000,
-    max_segs: int = 5,
+    max_chars: int | None = None,
+    max_segs: int | None = None,
 ) -> list[list[dict]]:
+    if max_chars is None:
+        max_chars = settings.BATCH_MAX_CHARS
+    if max_segs is None:
+        max_segs = settings.BATCH_MAX_SEGMENTS
     """Split segments into batches that fit the model's context window.
 
     Args:
@@ -329,8 +335,8 @@ class Translator:
                     model=self.model,
                     prompt=user_prompt,
                     system=system,
-                    temperature=0.3,
-                    num_ctx=4096,  # Reduced for safety
+                    temperature=settings.TRANSLATION_TEMPERATURE,
+                    num_ctx=settings.TRANSLATION_NUM_CTX,
                 )
         except OllamaTimeoutError:
             logger.error(
@@ -373,9 +379,7 @@ class Translator:
 
         # RALPH Loop: 1-by-1 retry with strict tag + JP-leak checking (max 3 attempts)
         for seg in needs_retry:
-            max_attempts = (
-                3  # 3 attempts max — at 90s timeout = 4.5min worst-case per segment
-            )
+            max_attempts = settings.TRANSLATION_MAX_RETRIES
             success = False
             single_clean = seg["text"]  # safe fallback default
             for attempt in range(1, max_attempts + 1):
@@ -403,8 +407,8 @@ class Translator:
                             model=self.model,
                             prompt=seg["text"],
                             system=retry_system,
-                            temperature=0.2,
-                            num_ctx=4096,
+                            temperature=max(settings.TRANSLATION_TEMPERATURE - 0.1, 0.1),
+                            num_ctx=settings.TRANSLATION_NUM_CTX,
                         )
                 except OllamaTimeoutError:
                     logger.error(

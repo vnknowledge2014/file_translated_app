@@ -25,14 +25,16 @@ from app.ollama.model_manager import ModelManager
 from app.agent.translator import Translator
 from app.agent.orchestrator import Orchestrator
 from app.utils.file_detect import detect_file_type
+from app.config import settings
 
-# ── Config ──
+# ── Config (from .env file + environment variables) ──
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MODEL = os.environ.get("MODEL", "gemma4:e4b")
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(
-    os.path.dirname(__file__), "..", "data", "output"
-))
+OLLAMA_URL = settings.OLLAMA_URL
+MODEL = settings.MODEL
+OUTPUT_DIR = settings.OUTPUT_DIR
+# For CLI, prefer relative path if OUTPUT_DIR is Docker default
+if OUTPUT_DIR == "/data/output":
+    OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "output")
 
 # ── Logging ──
 
