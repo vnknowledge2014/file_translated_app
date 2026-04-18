@@ -346,6 +346,97 @@
 
         .error { color: var(--accent-rose); }
 
+        /* ── XLIFF Section ── */
+        .xliff-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-top: 32px;
+            backdrop-filter: blur(12px);
+        }
+
+        .xliff-section h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .xliff-upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .xliff-drop {
+            border: 1px dashed var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .xliff-drop:hover {
+            border-color: var(--accent-purple);
+            background: rgba(139, 92, 246, 0.05);
+        }
+
+        .xliff-drop.has-file {
+            border-color: var(--accent-emerald);
+            color: var(--accent-emerald);
+        }
+
+        .xliff-submit {
+            grid-column: 1 / -1;
+            padding: 10px 24px;
+            border-radius: var(--radius-sm);
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .xliff-submit.ready {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .xliff-submit:hover { transform: translateY(-1px); }
+
+        .btn-xliff {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: none;
+            cursor: pointer;
+            margin-top: 16px;
+            margin-left: 8px;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+
+        .btn-xliff:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
+        }
+
         /* ── Footer ── */
         .footer {
             text-align: center;
@@ -386,6 +477,22 @@
         </div>
 
         <div id="jobs-container"></div>
+
+        <!-- XLIFF Import Section -->
+        <div class="xliff-section">
+            <h3>📤 Import Reviewed XLIFF</h3>
+            <div class="xliff-upload-grid">
+                <div class="xliff-drop" id="xliff-drop-original">
+                    📄 Original file<br><small>(.docx, .xlsx, .pptx)</small>
+                    <input type="file" id="xliff-original-input" accept=".docx,.xlsx,.pptx,.txt,.md,.csv" hidden>
+                </div>
+                <div class="xliff-drop" id="xliff-drop-xlf">
+                    📝 Reviewed XLIFF<br><small>(.xlf)</small>
+                    <input type="file" id="xliff-xlf-input" accept=".xlf,.xliff" hidden>
+                </div>
+                <button class="xliff-submit" id="xliff-submit-btn">🔄 Reconstruct from XLIFF</button>
+            </div>
+        </div>
 
         <footer class="footer">
             Powered by gemma4 + translategemma • Air-Gapped System
@@ -585,6 +692,75 @@
 
     // Load on page ready
     loadActiveJobs();
+
+    // ── XLIFF Import ──
+    const xliffOriginalInput = document.getElementById('xliff-original-input');
+    const xliffXlfInput = document.getElementById('xliff-xlf-input');
+    const xliffSubmitBtn = document.getElementById('xliff-submit-btn');
+    const xliffDropOriginal = document.getElementById('xliff-drop-original');
+    const xliffDropXlf = document.getElementById('xliff-drop-xlf');
+
+    xliffDropOriginal.addEventListener('click', () => xliffOriginalInput.click());
+    xliffDropXlf.addEventListener('click', () => xliffXlfInput.click());
+
+    xliffOriginalInput.addEventListener('change', () => {
+        if (xliffOriginalInput.files.length) {
+            xliffDropOriginal.classList.add('has-file');
+            xliffDropOriginal.querySelector('small').textContent = xliffOriginalInput.files[0].name;
+            checkXliffReady();
+        }
+    });
+
+    xliffXlfInput.addEventListener('change', () => {
+        if (xliffXlfInput.files.length) {
+            xliffDropXlf.classList.add('has-file');
+            xliffDropXlf.querySelector('small').textContent = xliffXlfInput.files[0].name;
+            checkXliffReady();
+        }
+    });
+
+    function checkXliffReady() {
+        if (xliffOriginalInput.files.length && xliffXlfInput.files.length) {
+            xliffSubmitBtn.classList.add('ready');
+        }
+    }
+
+    xliffSubmitBtn.addEventListener('click', async () => {
+        if (!xliffOriginalInput.files.length || !xliffXlfInput.files.length) return;
+
+        const formData = new FormData();
+        formData.append('original_file', xliffOriginalInput.files[0]);
+        formData.append('xliff_file', xliffXlfInput.files[0]);
+
+        xliffSubmitBtn.textContent = '⏳ Processing...';
+        xliffSubmitBtn.style.opacity = '0.7';
+
+        try {
+            const resp = await fetch(`${API_BASE}/api/import-xliff`, { method: 'POST', body: formData });
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = xliffOriginalInput.files[0].name.replace(/\.[^.]+$/, '_vi$&');
+                a.click();
+                URL.revokeObjectURL(url);
+                xliffSubmitBtn.textContent = '✅ Downloaded!';
+            } else {
+                const data = await resp.json();
+                showError(data.error || 'XLIFF import failed');
+                xliffSubmitBtn.textContent = '❌ Failed';
+            }
+        } catch (e) {
+            showError('XLIFF import error: ' + e.message);
+            xliffSubmitBtn.textContent = '❌ Error';
+        }
+
+        setTimeout(() => {
+            xliffSubmitBtn.textContent = '🔄 Reconstruct from XLIFF';
+            xliffSubmitBtn.style.opacity = '';
+        }, 3000);
+    });
     </script>
 </body>
 </html>

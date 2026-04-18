@@ -125,6 +125,78 @@ Ollama configured with `OLLAMA_NUM_PARALLEL=4` and `OLLAMA_KEEP_ALIVE=24h`.
 
 ---
 
+## XLIFF Bilingual Exchange Layer
+
+After translation, segments can be exported to **XLIFF** (XML Localization Interchange File Format) for human review in CAT tools, then imported back to reconstruct the final document.
+
+### Dual-Version Support
+
+| Feature | XLIFF 1.2 (default) | XLIFF 2.1 |
+|:--------|:--------------------|:----------|
+| Namespace | `urn:oasis:names:tc:xliff:document:1.2` | `urn:oasis:names:tc:xliff:document:2.1` |
+| Segment element | `<trans-unit>` | `<unit>/<segment>` |
+| Inline tags | `<bpt>`/`<ept>`, `<x/>` | `<pc>`, `<ph/>` |
+| CAT compatibility | Universal (Trados, memoQ, OmegaT, Phrase) | Partial |
+
+Import auto-detects version from root element. Export defaults to 1.2.
+
+### Inline Tag Mapping
+
+Pipeline `<tagX>` markers are mapped to XLIFF inline elements so CAT tools can protect formatting:
+
+```
+Source:   text<tag1>bold</tag1>more<tag2/>break
+XLIFF 1.2: text<bpt id="1">...</bpt>bold<ept id="1">...</ept>more<x id="2"/>break
+XLIFF 2.1: text<pc id="1" type="fmt">bold</pc>more<ph id="2" type="other"/>break
+```
+
+Roundtrip fidelity: export → CAT edit → import preserves all tags.
+
+### XLIFF State Machine
+
+Each segment's `<target>` carries a lifecycle state:
+
+```
+new → translated → needs-review-translation → final → signed-off
+```
+
+- **new**: No target text (blank XLIFF for manual mode)
+- **translated**: LLM translated, confidence >= 0.6
+- **needs-review-translation**: LLM translated, confidence < 0.6
+- **final**: Human-approved or auto-approved (HIGH confidence)
+
+### Operating Modes
+
+| Mode | CLI | Description |
+|:-----|:----|:------------|
+| **Full Auto** | `--file doc.docx` | Translate + reconstruct (XLIFF export optional) |
+| **Assisted** | `--file doc.docx --export-xliff` | Translate + export bilingual XLIFF for review |
+| **Manual** | `--file doc.docx --export-xliff --no-translate` | Export blank XLIFF for external translation |
+| **Import** | `--file doc.docx --import-xliff file.xlf` | Skip LLM, reconstruct from reviewed XLIFF |
+
+---
+
+## Confidence Scoring
+
+After translation, each segment receives a **confidence score** (0.0–1.0) based on multi-signal heuristics:
+
+| Signal | Penalty | Trigger |
+|:-------|:--------|:--------|
+| JP Leak | -0.50 | CJK characters remaining in Vietnamese output |
+| Tag Mismatch | -0.40 | Missing or hallucinated `<tagX>` markers |
+| Length Anomaly | -0.30 | Target/source length ratio < 0.3 or > 3.0 |
+| Retry Penalty | -0.10/retry | Segments that required RALPH loop retries |
+| Cache Boost | +0.20 | Previously validated translation from cache |
+
+**Classification thresholds** (configurable):
+- **HIGH** (>= 0.85): Auto-approved, no review needed
+- **MEDIUM** (0.60–0.85): Flagged for optional review
+- **LOW** (< 0.60): Marked `needs-review-translation` in XLIFF
+
+**Progressive Automation**: As translation cache grows from human edits, cache hit rate increases → more segments auto-approved → human review effort decreases over time.
+
+---
+
 ## Data Model
 
 ### Job Table

@@ -5,6 +5,9 @@ LLM used only for translation (gemma4:e4b).
 
 Usage:
     python scripts/translate_cli.py [--file FILE] [--dir DIR]
+    python scripts/translate_cli.py --file FILE --export-xliff
+    python scripts/translate_cli.py --file FILE --import-xliff data/output/file_vi.xlf
+    python scripts/translate_cli.py --file FILE --export-xliff --no-translate
 
 Environment variables:
     OLLAMA_URL (default: http://localhost:11434)
@@ -57,7 +60,14 @@ def _progress_bar(phase: str, progress: float, message: str):
         print()
 
 
-async def translate_one(file_path: str, output_dir: str) -> dict:
+async def translate_one(
+    file_path: str,
+    output_dir: str,
+    export_xliff_flag: bool = False,
+    xliff_version: str = "1.2",
+    import_xliff_path: str | None = None,
+    no_translate: bool = False,
+) -> dict:
     """Translate a single file."""
     abs_path = os.path.abspath(file_path)
     filename = os.path.basename(abs_path)
@@ -92,6 +102,10 @@ async def translate_one(file_path: str, output_dir: str) -> dict:
         file_type=file_type,
         job_id=job_id,
         output_path=output_path,
+        export_xliff_flag=export_xliff_flag,
+        xliff_version=xliff_version,
+        import_xliff_path=import_xliff_path,
+        no_translate=no_translate,
     )
 
     return {"file": filename, **result}
@@ -104,6 +118,10 @@ async def main():
     parser = argparse.ArgumentParser(description="Translate JP→VI documents")
     parser.add_argument("--file", "-f", action="append", help="File(s) to translate. Can be specified multiple times.")
     parser.add_argument("--dir", "-d", help="Directory of files to translate")
+    parser.add_argument("--export-xliff", action="store_true", help="Export bilingual XLIFF alongside output")
+    parser.add_argument("--xliff-version", default="1.2", choices=["1.2", "2.1"], help="XLIFF version (default: 1.2)")
+    parser.add_argument("--import-xliff", type=str, help="Import reviewed XLIFF and reconstruct (skip LLM)")
+    parser.add_argument("--no-translate", action="store_true", help="Export blank XLIFF without translation")
     args = parser.parse_args()
 
     if not args.file and not args.dir:
@@ -131,11 +149,29 @@ async def main():
 
     results = []
     for f in files:
-        r = await translate_one(f, OUTPUT_DIR)
+        r = await translate_one(
+            f, OUTPUT_DIR,
+            export_xliff_flag=args.export_xliff,
+            xliff_version=args.xliff_version,
+            import_xliff_path=args.import_xliff,
+            no_translate=args.no_translate,
+        )
         status_emoji = "✅" if r.get("status") == "completed" else "❌"
         segs = r.get("segments_count", 0)
         dur = r.get("duration_seconds", 0)
         logger.info(f"{status_emoji} {r['file']} → {segs} segments in {dur:.1f}s")
+
+        # Display confidence stats
+        conf_stats = r.get("confidence_stats")
+        if conf_stats:
+            logger.info(
+                f"   Confidence: {conf_stats['high_count']} HIGH, "
+                f"{conf_stats['medium_count']} MEDIUM, {conf_stats['low_count']} LOW "
+                f"(avg={conf_stats['avg_confidence']:.2f})"
+            )
+        if r.get("xliff_path"):
+            logger.info(f"   XLIFF: {r['xliff_path']}")
+
         results.append(r)
 
     # Summary

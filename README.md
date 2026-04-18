@@ -18,7 +18,10 @@ FastAPI Server ──→ Orchestrator Pipeline
   (Native OOXML)  (Ollama)     format-preserving
          └─────────────┼─────────────┘
                        ▼
-                  Output File (_vi)
+              Confidence Scorer  ──→  XLIFF Export (optional)
+                       │                    │
+                       ▼                    ▼
+                  Output File (_vi)    Bilingual .xlf (for review)
 ```
 
 ### Pipeline (3 Phases)
@@ -40,6 +43,8 @@ FastAPI Server ──→ Orchestrator Pipeline
 - **XLSX Integrity Protection** — regex-based byte surgery on `workbook.xml` preserves original namespace prefixes; cross-sheet formula references and `definedName` ranges auto-updated on sheet rename; `calcChain.xml` dropped with references cleaned from `[Content_Types].xml` and `workbook.xml.rels`; phonetic annotations globally stripped; drawing text translated via ET with direct serialization (bypassing `preserve_xml_declaration` to prevent inline xmlns loss).
 - **Environment-based configuration** — all settings externalized to `.env` file with sensible defaults; no `python-dotenv` dependency (custom loader).
 - **Single model** — one `gemma4:e4b` handles all translation locally via Ollama.
+- **XLIFF Bilingual Exchange** — dual-version (1.2 + 2.1) export/import for CAT tool integration (Trados, memoQ, OmegaT). Inline `<tagX>` mapped to XLIFF `<bpt>/<ept>` (1.2) or `<pc>` (2.1). State machine tracks segment lifecycle: new → translated → needs-review → final.
+- **Confidence Scoring** — multi-signal heuristic (JP leak, tag mismatch, length ratio, retry count, cache status) classifies segments into HIGH/MEDIUM/LOW buckets for adaptive human-in-the-loop triage.
 
 ## Supported Formats
 
@@ -93,8 +98,19 @@ Open [http://localhost:8000](http://localhost:8000)
 cd backend
 pip install -r requirements.txt
 
+# Standard translate
 python scripts/translate_cli.py --file samples/japanese-ja.docx
 python scripts/translate_cli.py --dir samples/
+
+# Export bilingual XLIFF alongside output
+python scripts/translate_cli.py --file doc.docx --export-xliff
+python scripts/translate_cli.py --file doc.docx --export-xliff --xliff-version 2.1
+
+# Import reviewed XLIFF (skip LLM entirely)
+python scripts/translate_cli.py --file doc.docx --import-xliff data/output/doc_vi.xlf
+
+# Export blank XLIFF for manual translation
+python scripts/translate_cli.py --file doc.docx --export-xliff --no-translate
 ```
 
 ## Configuration
@@ -155,7 +171,7 @@ pip install -r requirements.txt
 
 ```bash
 cd backend
-pytest tests/ -v  # ~160 tests
+pytest tests/ -v  # ~190 tests
 ```
 
 ### Start Dev Server
