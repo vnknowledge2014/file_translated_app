@@ -104,12 +104,29 @@ class Settings:
         self.BATCH_MAX_SEGMENTS: int = _env_int("BATCH_MAX_SEGMENTS", 5)
 
         # ── Paths ──
-        self.DATABASE_URL: str = _env(
-            "DATABASE_URL", "sqlite:///data/db/translations.db"
-        )
-        self.UPLOAD_DIR: str = _env("UPLOAD_DIR", "/data/uploads")
-        self.OUTPUT_DIR: str = _env("OUTPUT_DIR", "/data/output")
-        self.TEMP_DIR: str = _env("TEMP_DIR", "/data/temp")
+        from pathlib import Path
+        _project_root = Path(__file__).resolve().parent.parent.parent
+
+        def _resolve_path(p: str) -> str:
+            """Ensure local relative paths stay anchored to project root, preserving absolute paths."""
+            if p.startswith("/"):
+                return p
+            p = p[2:] if p.startswith("./") else p
+            return str(_project_root / p)
+
+        self.UPLOAD_DIR: str = _resolve_path(_env("UPLOAD_DIR", "/data/uploads"))
+        self.OUTPUT_DIR: str = _resolve_path(_env("OUTPUT_DIR", "/data/output"))
+        self.TEMP_DIR: str = _resolve_path(_env("TEMP_DIR", "/data/temp"))
+
+        # Special handling for SQLite URLs to make them absolute based on project root
+        db_url = _env("DATABASE_URL", "sqlite:///data/db/translations.db")
+        if db_url.startswith("sqlite:///data/") or db_url.startswith("sqlite:///./data/"):
+            rel_path = db_url.split("sqlite:///")[1]
+            rel_path = rel_path[2:] if rel_path.startswith("./") else rel_path
+            abs_db_path = _project_root / rel_path
+            self.DATABASE_URL = f"sqlite:///{abs_db_path}"
+        else:
+            self.DATABASE_URL = db_url
 
         # ── Workers ──
         self.MAX_WORKERS: int = _env_int("MAX_WORKERS", 1)
