@@ -7,20 +7,17 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - app-data:/data
+      - ./data:/data
       - ./frontend:/app/frontend:ro
     environment:
       # Docker-specific overrides (these take priority over .env)
-      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_URL=http://host.docker.internal:11434
       - DATABASE_URL=sqlite:///data/db/translations.db
       - UPLOAD_DIR=/data/uploads
       - OUTPUT_DIR=/data/output
       - TEMP_DIR=/data/temp
     env_file:
       - .env
-    depends_on:
-      ollama:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/api/health'); exit(0 if r.status_code==200 else 1)"]
@@ -28,30 +25,3 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Ollama LLM Server ──
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-models:/root/.ollama
-    environment:
-      - OLLAMA_MAX_LOADED_MODELS=1
-      - OLLAMA_NUM_PARALLEL=4
-      - OLLAMA_KEEP_ALIVE=24h
-    deploy:
-      resources:
-        limits:
-          memory: 14G
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  app-data:
-    driver: local
-  ollama-models:
-    driver: local
