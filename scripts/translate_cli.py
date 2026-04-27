@@ -1,7 +1,7 @@
-"""CLI runner for the JP→VI translation pipeline.
+"""CLI runner for the multilingual translation pipeline.
 
 Fully deterministic extraction and reconstruction.
-LLM used only for translation (gemma4:e4b).
+LLM used only for translation.
 
 Usage:
     python scripts/translate_cli.py [--file FILE] [--dir DIR]
@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import time
+import csv
 
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -67,6 +68,8 @@ async def translate_one(
     xliff_version: str = "1.2",
     import_xliff_path: str | None = None,
     no_translate: bool = False,
+    glossary: list[dict] | None = None,
+    domain_code: str = "general",
 ) -> dict:
     """Translate a single file."""
     abs_path = os.path.abspath(file_path)
@@ -77,7 +80,7 @@ async def translate_one(
         return {"file": filename, "status": "skipped", "error": "unsupported type"}
 
     base, ext = os.path.splitext(filename)
-    output_path = os.path.join(os.path.abspath(output_dir), f"{base}_vi{ext}")
+    output_path = os.path.join(os.path.abspath(output_dir), f"{base}_{settings.TARGET_LANG}{ext}")
 
     logger.info("=" * 60)
     logger.info(f"Translating: {filename} (type={file_type})")
@@ -106,6 +109,8 @@ async def translate_one(
         xliff_version=xliff_version,
         import_xliff_path=import_xliff_path,
         no_translate=no_translate,
+        glossary=glossary,
+        domain_code=domain_code,
     )
 
     return {"file": filename, **result}
@@ -115,18 +120,32 @@ async def main():
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Translate JP→VI documents")
+    parser = argparse.ArgumentParser(description="Translate documents between languages")
     parser.add_argument("--file", "-f", action="append", help="File(s) to translate. Can be specified multiple times.")
     parser.add_argument("--dir", "-d", help="Directory of files to translate")
+    parser.add_argument("--source", "-s", default=None, help=f"Source language code (default: {settings.SOURCE_LANG})")
+    parser.add_argument("--target", "-t", default=None, help=f"Target language code (default: {settings.TARGET_LANG})")
     parser.add_argument("--export-xliff", action="store_true", help="Export bilingual XLIFF alongside output")
     parser.add_argument("--xliff-version", default="1.2", choices=["1.2", "2.1"], help="XLIFF version (default: 1.2)")
     parser.add_argument("--import-xliff", type=str, help="Import reviewed XLIFF and reconstruct (skip LLM)")
     parser.add_argument("--no-translate", action="store_true", help="Export blank XLIFF without translation")
+    parser.add_argument("--glossary", type=str, help="Path to CSV glossary file (source, target, context)")
+    parser.add_argument("--domain", type=str, default=None, help=f"Domain for translation (default: {settings.DEFAULT_DOMAIN})")
     args = parser.parse_args()
 
     if not args.file and not args.dir:
         parser.print_help()
         sys.exit(1)
+
+    # Apply language pair and domain overrides
+    if args.source:
+        settings.SOURCE_LANG = args.source
+    if args.target:
+        settings.TARGET_LANG = args.target
+    if args.domain:
+        settings.DEFAULT_DOMAIN = args.domain
+
+    logger.info(f"Language pair: {settings.SOURCE_LANG} → {settings.TARGET_LANG} | Domain: {settings.DEFAULT_DOMAIN}")
 
     # Verify Ollama connection
     client = OllamaClient(OLLAMA_URL, timeout=90.0)
@@ -138,6 +157,25 @@ async def main():
         sys.exit(1)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    glossary_terms = []
+    if args.glossary:
+        if not os.path.isfile(args.glossary):
+            logger.error(f"Glossary file not found: {args.glossary}")
+            sys.exit(1)
+        with open(args.glossary, "r", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    first_lower = row[0].strip().lower()
+                    if first_lower in ("jp", "japanese", "source", "source_text", "原文"):
+                        continue
+                    glossary_terms.append({
+                        "source_text": row[0].strip(),
+                        "target_text": row[1].strip(),
+                        "context": row[2].strip() if len(row) > 2 else "",
+                    })
+        logger.info(f"Loaded {len(glossary_terms)} glossary terms from {args.glossary}")
 
     files = []
     if args.file:
@@ -155,6 +193,8 @@ async def main():
             xliff_version=args.xliff_version,
             import_xliff_path=args.import_xliff,
             no_translate=args.no_translate,
+            glossary=glossary_terms if args.glossary else None,
+            domain_code=settings.DEFAULT_DOMAIN,
         )
         status_emoji = "✅" if r.get("status") == "completed" else "❌"
         segs = r.get("segments_count", 0)

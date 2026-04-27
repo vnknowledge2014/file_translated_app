@@ -82,6 +82,11 @@ class Settings:
         self.OLLAMA_URL: str = _env("OLLAMA_URL", "http://ollama:11434")
         self.OLLAMA_TIMEOUT: float = _env_float("OLLAMA_TIMEOUT", 1800)
 
+        # ── Language & Domain ──
+        self.SOURCE_LANG: str = _env("SOURCE_LANG", "ja")
+        self.TARGET_LANG: str = _env("TARGET_LANG", "vi")
+        self.DEFAULT_DOMAIN: str = _env("DEFAULT_DOMAIN", "general")
+
         # ── Model ──
         self.MODEL: str = _env("MODEL", "gemma4:e4b")
 

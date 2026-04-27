@@ -7,7 +7,8 @@ ROOT_DIR = "."
 GRAPH_FILE = ".omni/knowledge-graph.json"
 OUTPUT_FILE = "PROJECT_MAP.md"
 
-EXCLUDE_DIRS = {".agent", ".git", "__pycache__", "venv", "data", ".pytest_cache", ".omni", "scripts"}
+EXCLUDE_DIRS = {".agent", ".git", "__pycache__", "venv", "data", ".pytest_cache", ".omni", "scripts",
+                "node_modules", "models", "samples", ".svelte-kit", "build", "paraglide", "project.inlang"}
 EXCLUDE_FILES = {"AGENTS.md", "omni.config.yaml", "translation_cache.db"}
 EXCLUDE_EXTS = {".pyc", ".db", ".png", ".jpg", ".patch", ".so"}
 

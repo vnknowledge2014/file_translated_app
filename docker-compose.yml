@@ -8,7 +8,6 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
-      - ./frontend:/app/frontend:ro
     environment:
       # Docker-specific overrides (these take priority over .env)
       - OLLAMA_URL=http://host.docker.internal:11434

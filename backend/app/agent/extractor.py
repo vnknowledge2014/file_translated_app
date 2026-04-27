@@ -1,7 +1,7 @@
 """Deterministic text extraction for all supported document formats.
 
 Walks every text-bearing node in the document tree exhaustively.
-No LLM involved — pure library traversal + Japanese detection.
+No LLM involved — pure library traversal + source language detection.
 
 Supported: DOCX, XLSX, PPTX, TXT, MD, CSV
 """
@@ -11,7 +11,8 @@ import os
 import re
 
 from app.config import settings
-from app.utils.japanese import has_japanese
+from app.utils.language_detect import has_source_language, detect_language
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,11 @@ def _is_translatable(text: str) -> bool:
     """Check if text should be translated.
 
     A segment is translatable if:
-    1. It contains Japanese characters
-    2. It's not a URL, email, formula, or pure number
+    1. It contains meaningful text (not blank, URL, formula, etc.)
+    2. It contains source language characters OR is detected as a
+       non-target language. This allows cross-language translation
+       (e.g., DE→VI, AR→VI) without requiring SOURCE_LANG to match
+       every input file's actual language.
 
     Args:
         text: Text to check.
@@ -43,16 +47,29 @@ def _is_translatable(text: str) -> bool:
 
     stripped = text.strip()
 
-    # Must contain Japanese
-    if not has_japanese(stripped):
-        return False
-
     # Skip known non-translatable patterns
     for pattern in _SKIP_PATTERNS:
         if pattern.match(stripped):
             return False
 
-    return True
+    # Fast path: if text contains configured source language chars, accept
+    if has_source_language(stripped, settings.SOURCE_LANG):
+        return True
+
+    # Slow path: auto-detect language. Accept if it's NOT the target language
+    # (i.e., it still needs translation). This handles cross-language inputs
+    # where SOURCE_LANG doesn't match the file's actual language.
+    detected = detect_language(stripped)
+    if detected and detected != settings.TARGET_LANG:
+        return True
+
+    # For Latin-script languages that detect_language may return None for,
+    # accept any text that has enough alphabetic characters (not pure symbols/numbers)
+    alpha_count = sum(1 for c in stripped if c.isalpha())
+    if alpha_count >= 2:
+        return True
+
+    return False
 
 
 def _dedup_segments(segments: list[dict]) -> list[dict]:
@@ -404,7 +421,7 @@ def _extract_diagram_tokens(line: str, line_idx: int) -> list[dict]:
     segments = []
     for token in tokens:
         token = token.strip()
-        if token and has_japanese(token):
+        if token and has_source_language(token, settings.SOURCE_LANG):
             segments.append({
                 "text": token,
                 "location": f"line[{line_idx}]",
@@ -419,7 +436,7 @@ def _extract_diagram_tokens(line: str, line_idx: int) -> list[dict]:
 def extract_plaintext(file_path: str) -> list[dict]:
     """Extract translatable lines from a plaintext file.
 
-    Each line with Japanese text becomes a segment.
+    Each line with source language text becomes a segment.
     Location is line[N] (0-indexed) for reconstruction.
 
     For ASCII diagram code blocks (containing box-drawing chars),
@@ -474,7 +491,7 @@ def extract_plaintext(file_path: str) -> list[dict]:
 
             if in_code and is_diagram:
                 # ASCII diagram block — extract JP tokens only
-                if has_japanese(stripped):
+                if has_source_language(stripped, settings.SOURCE_LANG):
                     tokens = _extract_diagram_tokens(line, i)
                     segments.extend(tokens)
                 continue

@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for the JP→VI translation tool."""
+"""SQLAlchemy ORM models for the multilingual translation tool."""
 
 from datetime import UTC, datetime
 
@@ -36,6 +36,9 @@ class Job(Base):
     error_message = Column(Text, nullable=True)
     segments_count = Column(Integer, nullable=True)
     duration_seconds = Column(Float, nullable=True)
+    source_lang = Column(String, nullable=False, default="ja")
+    target_lang = Column(String, nullable=False, default="vi")
+    domain = Column(String, nullable=False, default="general")
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
@@ -85,7 +88,19 @@ class GlossaryTerm(Base):
     __tablename__ = "glossary"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    jp = Column(String, nullable=False, unique=True)
-    vi = Column(String, nullable=False)
+    source_lang = Column(String, nullable=False, default="ja")
+    target_lang = Column(String, nullable=False, default="vi")
+    domain = Column(String, nullable=False, default="general")
+    source_text = Column(String, nullable=False)
+    target_text = Column(String, nullable=False)
     context = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    # Backward-compatible aliases
+    @property
+    def jp(self) -> str:
+        return self.source_text
+
+    @property
+    def vi(self) -> str:
+        return self.target_text

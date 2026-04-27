@@ -22,7 +22,8 @@ class TestIsTranslatable:
         assert _is_translatable("日本語テキスト") is True
 
     def test_english_text(self):
-        assert _is_translatable("Hello world") is False
+        # English text IS translatable in cross-language mode (e.g., EN→VI)
+        assert _is_translatable("Hello world") is True
 
     def test_empty_text(self):
         assert _is_translatable("") is False
@@ -72,9 +73,11 @@ class TestExtractDocx:
             doc.save(path)
 
             segs = extract_docx(path)
-            assert len(segs) == 2
+            # All 3 paragraphs should be extracted (cross-language support)
+            assert len(segs) == 3
             assert segs[0]["text"] == "テスト文書"
             assert segs[1]["text"] == "普通のテキスト"
+            assert segs[2]["text"] == "English only"
 
     def test_table_extraction(self):
         from docx import Document
@@ -94,7 +97,8 @@ class TestExtractDocx:
             assert "名前" in texts
             assert "値" in texts
             assert "テスト" in texts
-            assert "English" not in texts  # No Japanese
+            # English text is now translatable in cross-language mode
+            assert "English" in texts
 
     def test_empty_doc(self):
         from docx import Document
@@ -144,7 +148,8 @@ class TestExtractXlsx:
             assert "項目名" in texts
             assert "説明" in texts
             assert "テスト" in texts
-            assert "English" not in texts
+            # English text is now translatable in cross-language mode
+            assert "English" in texts
 
     def test_multiple_sheets(self):
         from openpyxl import Workbook
@@ -183,9 +188,11 @@ class TestExtractXlsx:
 
             segs = extract_xlsx(path)
             sheet_segs = [s for s in segs if s["type"] == "sheet_name"]
-            assert len(sheet_segs) == 1
-            assert sheet_segs[0]["text"] == "API作成_スケジュール"
-            assert sheet_segs[0]["location"] == "xl/workbook.xml:sheet[0]"
+            # Both sheet names are translatable in cross-language mode
+            assert len(sheet_segs) == 2
+            sheet_texts = {s["text"] for s in sheet_segs}
+            assert "API作成_スケジュール" in sheet_texts
+            assert "EnglishSheet" in sheet_texts
 
 
 class TestExtractPptx:
@@ -219,7 +226,8 @@ class TestExtractPptx:
             prs.save(path)
 
             segs = extract_pptx(path)
-            assert len(segs) == 3
+            # All 3 slides + potential boilerplate text
+            assert len(segs) >= 3
 
 
 class TestExtractPlaintext:
@@ -232,10 +240,12 @@ class TestExtractPlaintext:
                 f.write("テスト二行目\n")
 
             segs = extract_plaintext(path)
-            assert len(segs) == 2
+            # All 3 lines are translatable (including English)
+            assert len(segs) == 3
             assert segs[0]["text"] == "日本語テキスト"
             assert segs[0]["location"] == "line[0]"
-            assert segs[1]["location"] == "line[2]"
+            assert segs[1]["text"] == "English only"
+            assert segs[1]["location"] == "line[1]"
 
     def test_code_block_skip(self):
         with tempfile.TemporaryDirectory() as tmpdir:

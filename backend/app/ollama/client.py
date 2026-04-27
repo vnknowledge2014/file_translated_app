@@ -11,8 +11,10 @@ from app.ollama.exceptions import (
     OllamaTimeoutError,
 )
 
+from app.llm.base import LLMClient
 
-class OllamaClient:
+
+class OllamaClient(LLMClient):
     """Async HTTP client for Ollama API.
 
     Supports text generation (including vision mode), model listing,

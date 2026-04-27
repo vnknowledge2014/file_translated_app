@@ -1,7 +1,7 @@
 """Multi-signal heuristic confidence scorer for translation quality.
 
 Assigns a 0.0-1.0 confidence score to each translated segment based on
-multiple signals (JP leak, tag preservation, length ratio, retry count,
+multiple signals (source leak, tag preservation, length ratio, retry count,
 cache status). Used to triage segments for adaptive Human-in-the-Loop.
 
 No external model needed — runs entirely on local heuristics.
@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import re
 
-from app.utils.japanese import has_japanese
+from app.config import settings
+from app.utils.language_detect import has_source_language
 
 _TAG_RE = re.compile(r"</?tag\d+/?>")
 
 
-def score_segment(seg: dict) -> float:
+def score_segment(seg: dict, domain_code: str = "general", source_lang: str = "ja") -> float:
     """Calculate confidence score for a translated segment.
 
     Signals:
@@ -37,9 +38,21 @@ def score_segment(seg: dict) -> float:
 
     score = 1.0
 
-    # Signal 1: JP Leak
+    # Signal 1: Source Language Leak (smart — ignores preserved English terms)
     target_clean = _TAG_RE.sub("", target)
-    if has_japanese(target_clean):
+    source_clean = _TAG_RE.sub("", source)
+    
+    from app.utils.language_detect import analyze_segment
+    source_analysis = analyze_segment(source_clean, domain_code=domain_code)
+    
+    # Remove preserved terms from target before checking for leak
+    target_for_leak_check = target_clean
+    if source_analysis.get("preserve_terms"):
+        for term in source_analysis["preserve_terms"]:
+            # Simple replace is safe enough for confidence scoring heuristics
+            target_for_leak_check = target_for_leak_check.replace(term, "")
+            
+    if has_source_language(target_for_leak_check, source_lang):
         score -= 0.5
 
     # Signal 2: Tag preservation
@@ -71,6 +84,8 @@ def classify_segments(
     segments: list[dict],
     high_threshold: float = 0.85,
     low_threshold: float = 0.60,
+    domain_code: str = "general",
+    source_lang: str = "ja",
 ) -> dict:
     """Classify translated segments into confidence buckets.
 
@@ -88,7 +103,7 @@ def classify_segments(
             low.append(seg)
             continue
 
-        conf = score_segment(seg)
+        conf = score_segment(seg, domain_code=domain_code, source_lang=source_lang)
         seg["confidence"] = conf
         total_confidence += conf
 

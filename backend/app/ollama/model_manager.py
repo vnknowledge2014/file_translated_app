@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from app.ollama.client import OllamaClient
+from app.llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,8 @@ class ModelManager:
     On first use, warm the model with a minimal generate request.
     """
 
-    def __init__(self, client: OllamaClient):
-        """Initialize with OllamaClient.
+    def __init__(self, client: LLMClient):
+        """Initialize with LLMClient.
 
         Args:
             client: Async Ollama API client.

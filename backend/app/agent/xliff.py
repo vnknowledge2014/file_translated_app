@@ -204,10 +204,10 @@ def _export_v12(segments, original_filename, file_type, output_path, source_lang
     file_el = ET.SubElement(xliff, "file", {
         "original": original_filename, "source-language": source_lang,
         "target-language": target_lang, "datatype": f"x-{file_type}",
-        "tool-id": "jp-vi-translator",
+        "tool-id": "multilingual-translator",
     })
     header = ET.SubElement(file_el, "header")
-    ET.SubElement(header, "tool", {"tool-id": "jp-vi-translator", "tool-name": "JP-VI Translation System"})
+    ET.SubElement(header, "tool", {"tool-id": "multilingual-translator", "tool-name": "Multilingual Translation System"})
     body = ET.SubElement(file_el, "body")
     for idx, seg in enumerate(segments):
         source_text = seg.get("text", "")
@@ -303,7 +303,7 @@ def _import_v21(xliff_path):
 # ── Public API ──
 
 def export_xliff(segments, original_filename, file_type, output_path,
-                 source_lang="ja", target_lang="vi", version="1.2"):
+                 source_lang=None, target_lang=None, version="1.2"):
     """Export translated segments to XLIFF bilingual file.
 
     Args:
@@ -311,13 +311,18 @@ def export_xliff(segments, original_filename, file_type, output_path,
         original_filename: Original document filename.
         file_type: Document type (docx, xlsx, pptx, txt, md, csv).
         output_path: Where to write the .xlf file.
-        source_lang: BCP-47 source language tag.
-        target_lang: BCP-47 target language tag.
+        source_lang: BCP-47 source language tag (default: from settings).
+        target_lang: BCP-47 target language tag (default: from settings).
         version: XLIFF version — '1.2' (default) or '2.1'.
 
     Returns:
         Path to the written .xlf file.
     """
+    from app.config import settings
+    if source_lang is None:
+        source_lang = settings.SOURCE_LANG
+    if target_lang is None:
+        target_lang = settings.TARGET_LANG
     if version.startswith("2"):
         return _export_v21(segments, original_filename, file_type, output_path, source_lang, target_lang)
     return _export_v12(segments, original_filename, file_type, output_path, source_lang, target_lang)

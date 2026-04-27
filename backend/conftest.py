@@ -1,4 +1,4 @@
-"""Shared test fixtures for the JP→VI translation tool."""
+"""Shared test fixtures for the multilingual translation tool."""
 
 import pytest
 

@@ -113,6 +113,22 @@ def _safe_replace(t: str, search: str, replacement: str) -> str:
     return ''.join(out)
 
 
+def _needs_quoting(name: str) -> bool:
+    """Check if a sheet name requires single-quote wrapping in Excel formulas.
+
+    Excel requires quoting when the sheet name contains spaces, special
+    characters, or Unicode (e.g., Vietnamese diacritics).
+    """
+    if ' ' in name:
+        return True
+    if any(c in name for c in r"![]''\"<>*+"):
+        return True
+    # Unicode characters (Vietnamese, CJK, etc.) also need quoting
+    if any(ord(c) > 127 for c in name):
+        return True
+    return False
+
+
 def _fix_sheet_refs_in_text(text: str, name_map: dict[str, str]) -> str:
     """Replace old sheet names in formula/defined-name text.
 
@@ -122,8 +138,11 @@ def _fix_sheet_refs_in_text(text: str, name_map: dict[str, str]) -> str:
     for old, new in sorted(name_map.items(), key=lambda x: -len(x[0])):
         new_esc = html.escape(new) if '<' in new or '&' in new else new
         text = _safe_replace(text, f"'{old}'!", f"'{new_esc}'!")
-        if ' ' not in old and not any(c in old for c in "![]'"):
-            text = _safe_replace(text, f"{old}!", f"{new_esc}!")
+        if ' ' not in old and not any(c in old for c in "![\\'"):
+            if _needs_quoting(new_esc):
+                text = _safe_replace(text, f"{old}!", f"'{new_esc}'!")
+            else:
+                text = _safe_replace(text, f"{old}!", f"{new_esc}!")
     return text
 
 
@@ -136,8 +155,7 @@ def _fix_formula_sheet_refs(formula_text: str, sheet_name_map: dict[str, str]) -
     for old, new in sorted(sheet_name_map.items(), key=lambda x: -len(x[0])):
         result = _safe_replace(result, f"'{old}'!", f"'{new}'!")
         if ' ' not in old and not any(c in old for c in "![\\'"):
-            needs_quotes = ' ' in new or any(c in new for c in r"![]''\"<>*+")
-            if needs_quotes:
+            if _needs_quoting(new):
                 result = _safe_replace(result, f"{old}!", f"'{new}'!")
             else:
                 result = _safe_replace(result, f"{old}!", f"{new}!")
@@ -289,11 +307,11 @@ def _process_worksheet(
     if sheet_name_map:
         buf_str = buffer.decode('utf-8')
         new_buf = re.sub(
-            r'<f([^>]*)>([^<]*)</f>',
+            r'<(f|formula|formula1|formula2|formula3)([^>]*)>([^<]*)</\1>',
             lambda m: (
-                f"<f{m.group(1)}>"
-                f"{_fix_formula_sheet_refs(m.group(2), sheet_name_map)}"
-                f"</f>"
+                f"<{m.group(1)}{m.group(2)}>"
+                f"{_fix_formula_sheet_refs(m.group(3), sheet_name_map)}"
+                f"</{m.group(1)}>"
             ),
             buf_str,
         )
@@ -328,8 +346,11 @@ def _process_drawing(buffer: bytes, sheet_name_map: dict[str, str]) -> bytes:
     changed = buf_str
     for old, new in sorted(sheet_name_map.items(), key=lambda x: -len(x[0])):
         changed = _safe_replace(changed, f"'{old}'!", f"'{new}'!")
-        if ' ' not in old and not any(c in old for c in "!['"):
-            changed = _safe_replace(changed, f"{old}!", f"{new}!")
+        if ' ' not in old and not any(c in old for c in "![\\'"):
+            if _needs_quoting(new):
+                changed = _safe_replace(changed, f"{old}!", f"'{new}'!")
+            else:
+                changed = _safe_replace(changed, f"{old}!", f"{new}!")
     if changed != buf_str:
         return changed.encode('utf-8')
     return buffer

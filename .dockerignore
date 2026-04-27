@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Development artifacts
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+frontend/.vscode
+
+# Runtime data
+data/
+models/
+samples/
+
+# Python caches
+__pycache__
+*.pyc
+.pytest_cache
+
+# Docs & config not needed in image
+docs/
+*.md
+.env.example
+scripts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Office temp
+~$*
+
+# Omni
+.agent/
+.omni/
+*.log

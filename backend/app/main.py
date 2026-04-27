@@ -9,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import init_db
-from app.ollama.client import OllamaClient
+from app.llm.factory import create_llm_client
+from app.worker import WorkerPool
 
 
 @asynccontextmanager
@@ -22,23 +23,37 @@ async def lifespan(app: FastAPI):
     engine, session_factory = await init_db(db_url)
     app.state.db_engine = engine
     app.state.db_session_factory = session_factory
-    app.state.ollama_client = OllamaClient(settings.OLLAMA_URL)
+    # Select LLM backend
+    app.state.llm_client = create_llm_client(
+        url=settings.OLLAMA_URL,
+        timeout=settings.OLLAMA_TIMEOUT,
+    )
+    # Keep backward-compatible alias
+    app.state.ollama_client = app.state.llm_client
 
     # Ensure directories exist
     for d in [settings.UPLOAD_DIR, settings.OUTPUT_DIR, settings.TEMP_DIR]:
         os.makedirs(d, exist_ok=True)
 
+    # Start worker pool (bounded by MAX_WORKERS)
+    pool = WorkerPool(max_workers=settings.MAX_WORKERS)
+    app.state.worker_pool = pool
+    await pool.start()
+
     yield
 
+    # Shutdown worker pool first (let active jobs finish)
+    await pool.shutdown()
+
     # Shutdown
-    await app.state.ollama_client.close()
+    await app.state.llm_client.close()
     await engine.dispose()
 
 
 app = FastAPI(
-    title="JP→VI Document Translation",
-    description="Air-gapped Japanese-to-Vietnamese document translation system",
-    version="0.1.0",
+    title="Multilingual Document Translation",
+    description="Air-gapped multilingual document translation system powered by local LLM",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -57,30 +72,49 @@ from app.routes.jobs import router as jobs_router  # noqa: E402
 from app.routes.download import router as download_router  # noqa: E402
 from app.routes.xliff import router as xliff_router  # noqa: E402
 from app.routes.segments import router as segments_router  # noqa: E402
+from app.routes.glossary import router as glossary_router  # noqa: E402
 
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(jobs_router, prefix="/api", tags=["Jobs"])
 app.include_router(download_router, prefix="/api", tags=["Download"])
 app.include_router(xliff_router, prefix="/api", tags=["XLIFF"])
 app.include_router(segments_router, prefix="/api", tags=["Segments"])
+app.include_router(glossary_router, prefix="/api", tags=["Glossary"])
 
 
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
-    ollama_ok = await app.state.ollama_client.health_check()
+    llm_ok = await app.state.llm_client.health_check()
+    pool = app.state.worker_pool
     return {
         "status": "ok",
-        "ollama": "connected" if ollama_ok else "disconnected",
+        "llm_backend": "ollama",
+        "llm": "connected" if llm_ok else "disconnected",
+        "workers": {
+            "max": pool.max_workers,
+            "active": pool.active_count,
+            "queued": pool.queue_size,
+        },
     }
+
+from app.languages import list_languages
+from app.domains import list_supported_domains
+
+@app.get("/api/languages", tags=["Meta"])
+async def get_languages():
+    """Get all supported languages."""
+    return list_languages()
+
+@app.get("/api/domains", tags=["Meta"])
+async def get_domains():
+    """Get all supported domains."""
+    return list_supported_domains()
 
 
 # ── Serve frontend static files ──
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "frontend")
+# In Docker: built SvelteKit output is at /app/frontend
+# For local dev: run SvelteKit dev server separately (npm run dev)
+FRONTEND_DIR = "/app/frontend"
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
-else:
-    # Docker path
-    DOCKER_FRONTEND = "/app/frontend"
-    if os.path.isdir(DOCKER_FRONTEND):
-        app.mount("/", StaticFiles(directory=DOCKER_FRONTEND, html=True), name="frontend")

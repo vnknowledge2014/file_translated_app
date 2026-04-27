@@ -58,6 +58,7 @@ class TestTranslator:
             {"text": "文A", "location": "p[0]", "type": "body"},
             {"text": "文B", "location": "p[1]", "type": "body"},
         ]
+        await translator._init_cache()
         result = await translator.translate_batch(segments, "docx")
 
         assert result[0]["translated_text"] == "Dịch A"
@@ -70,6 +71,7 @@ class TestTranslator:
 
         translator = Translator(client, "gemma4:e4b")
         segments = [{"text": "こんにちは", "location": "p[0]", "type": "body"}]
+        await translator._init_cache()
         result = await translator.translate_batch(segments, "docx")
 
         assert result[0]["translated_text"] == "Xin chào"
@@ -87,6 +89,7 @@ class TestTranslator:
             {"text": "文A", "location": "p[0]", "type": "body"},
             {"text": "文B", "location": "p[1]", "type": "body"},
         ]
+        await translator._init_cache()
         result = await translator.translate_batch(segments, "docx")
 
         assert result[0]["translated_text"] == "Dịch A"

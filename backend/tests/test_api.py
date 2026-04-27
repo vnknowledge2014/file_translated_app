@@ -20,7 +20,13 @@ async def test_app(tmp_path):
     app.state.db_session_factory = session_factory
     app.state.ollama_client = AsyncMock()
     app.state.ollama_client.health_check = AsyncMock(return_value=True)
-
+    app.state.llm_client = app.state.ollama_client
+    
+    app.state.worker_pool = AsyncMock()
+    app.state.worker_pool.max_workers = 1
+    app.state.worker_pool.active_count = 0
+    app.state.worker_pool.queue_size = 0
+    
     # Override upload/output dirs
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
@@ -72,7 +78,7 @@ class TestUploadEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["file_type"] == "docx"
-        assert data["status"] == "pending"
+        assert data["status"] == "queued"
         assert "job_id" in data
 
     @pytest.mark.asyncio
@@ -95,7 +101,7 @@ class TestUploadEndpoint:
         )
         data = response.json()
         assert data["file_type"] == "xlsx"
-        assert data["status"] == "pending"
+        assert data["status"] == "queued"
 
 
 class TestJobsEndpoint:

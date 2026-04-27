@@ -22,6 +22,10 @@
 - **Purpose:** Orchestrator — fully deterministic Extract → Translate → Reconstruct pipeline.
 - **Classes:** Orchestrator
 
+### `backend/app/agent/prompt_router.py`
+- **Purpose:** Prompt Router for Context Engineering Matrix.
+- **Classes:** PromptRouter
+
 ### `backend/app/agent/reconstructor/__init__.py`
 - **Purpose:** Deterministic document reconstruction — per-format modules.
 - **Functions:** reconstruct_document
@@ -48,12 +52,12 @@
 
 ### `backend/app/agent/reconstructor/xlsx.py`
 - **Purpose:** XLSX (Excel) deterministic reconstruction.
-- **Functions:** _sanitize_sheet_name, _build_sheet_name_map, _safe_replace, _fix_sheet_refs_in_text, _fix_formula_sheet_refs
+- **Functions:** _sanitize_sheet_name, _build_sheet_name_map, _safe_replace, _needs_quoting, _fix_sheet_refs_in_text
 
 ### `backend/app/agent/translator.py`
 - **Purpose:** Batch translation via LLM with ||| delimiter.
 - **Classes:** Translator
-- **Functions:** _load_prompt_file, build_glossary_prompt, chunk_segments
+- **Functions:** _load_prompt_file, chunk_segments
 
 ### `backend/app/agent/xliff.py`
 - **Purpose:** XLIFF bilingual translation exchange — dual-version (1.2 + 2.1).
@@ -67,11 +71,32 @@
 ### `backend/app/database.py`
 - **Purpose:** Async SQLite database with CRUD operations for job tracking.
 
+### `backend/app/domains.py`
+- **Purpose:** Domain Registry and Profile definitions for multi-domain translation.
+- **Classes:** DomainProfile
+- **Functions:** get_domain, list_supported_domains
+
+### `backend/app/languages.py`
+- **Purpose:** Language Registry — profiles for all supported languages.
+- **Classes:** LanguageProfile
+- **Functions:** _register, get_language, get_language_name, list_languages
+
+### `backend/app/llm/__init__.py`
+- **Purpose:** LLM client abstraction layer.
+
+### `backend/app/llm/base.py`
+- **Purpose:** Abstract base class for LLM clients.
+- **Classes:** LLMClient
+
+### `backend/app/llm/factory.py`
+- **Purpose:** Factory for creating LLM client instances based on backend configuration.
+- **Functions:** create_llm_client
+
 ### `backend/app/main.py`
 - **Purpose:** FastAPI application with lifespan, CORS, and route registration.
 
 ### `backend/app/models.py`
-- **Purpose:** SQLAlchemy ORM models for the JP→VI translation tool.
+- **Purpose:** SQLAlchemy ORM models for the multilingual translation tool.
 - **Classes:** Base, Job, SegmentReview, JobAttempt, GlossaryTerm
 
 ### `backend/app/ollama/__init__.py`
@@ -89,10 +114,121 @@
 - **Purpose:** Model loading/unloading manager for 16GB RAM constraint.
 - **Classes:** ModelManager
 
-### `backend/app/prompts/ooxml_tag_rules.md`
+### `backend/app/prompts/rules/formats/ooxml.md`
 - **Type:** Non-Python resource/config file.
 
-### `backend/app/prompts/plaintext_rules.md`
+### `backend/app/prompts/rules/formats/plaintext.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/finance.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/general.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/it.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/it_software.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/legal.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/marketing.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/domains/medical.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/ar.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/de.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/en.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/es.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/fr.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/hi.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/id.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/ja.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/ko.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/pt.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/ru.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/th.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/vi.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/zh-TW.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/source/zh.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/ar.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/de.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/en.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/es.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/fr.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/hi.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/id.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/ja.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/ko.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/pt.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/ru.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/th.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/vi.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/zh-TW.md`
+- **Type:** Non-Python resource/config file.
+
+### `backend/app/prompts/skills/languages/target/zh.md`
 - **Type:** Non-Python resource/config file.
 
 ### `backend/app/routes/__init__.py`
@@ -100,6 +236,9 @@
 
 ### `backend/app/routes/download.py`
 - **Purpose:** Download route — GET /api/download/{job_id} → serve output file.
+
+### `backend/app/routes/glossary.py`
+- **Purpose:** Glossary routes — GET, POST (upload CSV), DELETE.
 
 ### `backend/app/routes/jobs.py`
 - **Purpose:** Job listing and detail routes.
@@ -109,8 +248,7 @@
 - **Classes:** SegmentEdit
 
 ### `backend/app/routes/upload.py`
-- **Purpose:** Upload route — POST /api/upload → save file + create job + start pipeline.
-- **Functions:** _on_pipeline_done
+- **Purpose:** Upload route — POST /api/upload → save file + create job + queue to worker pool.
 
 ### `backend/app/routes/xliff.py`
 - **Purpose:** XLIFF routes — import reviewed XLIFF and download XLIFF for jobs.
@@ -126,9 +264,13 @@
 - **Purpose:** File type detection for supported document formats.
 - **Functions:** detect_file_type, get_supported_types
 
-### `backend/app/utils/japanese.py`
-- **Purpose:** Japanese text detection and chunking utilities.
-- **Functions:** _strip_jp_symbols, has_japanese, chunk_text
+### `backend/app/utils/language_detect.py`
+- **Purpose:** Universal language detection and text utilities.
+- **Functions:** _build_char_regex, _strip_shared_symbols, has_source_language, detect_language, extract_english_terms
+
+### `backend/app/worker.py`
+- **Purpose:** Job Worker Pool — bounded concurrency for translation pipelines.
+- **Classes:** JobItem, WorkerPool
 
 ## 2. Tests (backend/tests)
 
@@ -172,9 +314,9 @@
 - **Purpose:** No docstring provided.
 - **Functions:** test_visual_width, test_insert_at_visual_col, test_reconstruct_plaintext_diagram
 
-### `backend/tests/test_japanese.py`
-- **Purpose:** Tests for app.utils.japanese — has_japanese() and chunk_text().
-- **Classes:** TestHasJapanese, TestChunkText
+### `backend/tests/test_language_detect.py`
+- **Purpose:** Tests for app.utils.language_detect — universal language detection and chunking.
+- **Classes:** TestHasSourceLanguage, TestDetectLanguage, TestAnalyzeSegment, TestChunkText
 
 ### `backend/tests/test_model_manager.py`
 - **Purpose:** Tests for app.ollama.model_manager — Model switching.
@@ -204,7 +346,7 @@
 
 ## 3. Configuration & Root
 
-### `.DS_Store`
+### `.dockerignore`
 - **Type:** Non-Python resource/config file.
 
 ### `.env`
@@ -226,7 +368,7 @@
 - **Type:** Non-Python resource/config file.
 
 ### `backend/conftest.py`
-- **Purpose:** Shared test fixtures for the JP→VI translation tool.
+- **Purpose:** Shared test fixtures for the multilingual translation tool.
 - **Functions:** sample_jp_text, sample_vi_text, sample_mixed_text
 
 ### `backend/pytest.ini`
@@ -235,76 +377,103 @@
 ### `backend/requirements.txt`
 - **Type:** Non-Python resource/config file.
 
-### `backend/server.log`
-- **Type:** Non-Python resource/config file.
-
 ### `docker-compose.yml`
 - **Type:** Non-Python resource/config file.
 
 ### `docs/architecture.md`
 - **Type:** Non-Python resource/config file.
 
-### `frontend/index.html`
+### `frontend/.gitignore`
 - **Type:** Non-Python resource/config file.
 
-### `samples/.DS_Store`
+### `frontend/.npmrc`
 - **Type:** Non-Python resource/config file.
 
-### `samples/01_requirements.md`
+### `frontend/README.md`
 - **Type:** Non-Python resource/config file.
 
-### `samples/API一覧.xlsx`
+### `frontend/messages/en.json`
 - **Type:** Non-Python resource/config file.
 
-### `samples/FreeBSD AI Hack Report (Japanese).pptx`
+### `frontend/messages/ja.json`
 - **Type:** Non-Python resource/config file.
 
-### `samples/HROne様SSO構成.pdf`
+### `frontend/messages/vi.json`
 - **Type:** Non-Python resource/config file.
 
-### `samples/NDD_skill_sheet_20260408.xlsx`
+### `frontend/package-lock.json`
 - **Type:** Non-Python resource/config file.
 
-### `samples/japanese-ja.docx`
+### `frontend/package.json`
 - **Type:** Non-Python resource/config file.
 
-### `samples/sample.txt`
+### `frontend/src/app.css`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translate_xlsx_zip.py`
-- **Purpose:** Translate xlsx at ZIP/XML level - FIXED version.
-- **Functions:** translate_shared_strings_via_regex, update_formula_refs, rename_sheets_in_workbook_via_regex, main
-
-### `samples/translated/01_requirements_vi.md`
+### `frontend/src/app.d.ts`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/API一覧_vi.xlsx`
+### `frontend/src/app.html`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/FreeBSD_AI_Hack_Report_vi.pptx`
+### `frontend/src/lib/api.ts`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/NDD_skill_sheet_20260408_vi.xlsx`
+### `frontend/src/lib/assets/favicon.svg`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/japanese-vi.docx`
+### `frontend/src/lib/components/BilingualEditor.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/sample.txt`
+### `frontend/src/lib/components/GlossaryTable.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/translated/【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510_vi.xlsx`
+### `frontend/src/lib/components/JobCard.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/~$【基本設計書】ファイル定義書_書類提出依頼_20250520.xlsx`
+### `frontend/src/lib/components/LanguageBar.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/~$【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510.xlsx`
+### `frontend/src/lib/components/LanguageSwitcher.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/【基本設計書】ファイル定義書_書類提出依頼_20250520.xlsx`
+### `frontend/src/lib/components/UploadZone.svelte`
 - **Type:** Non-Python resource/config file.
 
-### `samples/【基本設計書】依頼届出_雇保給付金申請_高年齢_画面設計_202510.xlsx`
+### `frontend/src/lib/index.ts`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/src/lib/stores/config.ts`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/src/lib/stores/i18n.ts`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/src/routes/+layout.svelte`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/src/routes/+layout.ts`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/src/routes/+page.svelte`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/static/robots.txt`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/svelte.config.js`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/tsconfig.json`
+- **Type:** Non-Python resource/config file.
+
+### `frontend/vite.config.ts`
+- **Type:** Non-Python resource/config file.
+
+### `i18n_manager.py`
+- **Purpose:** No docstring provided.
+- **Functions:** main
+
+### `ui_translations.xlsx`
 - **Type:** Non-Python resource/config file.
 

@@ -16,6 +16,7 @@ __pycache__/
 dist/
 build/
 .next/
+.svelte-kit/
 
 # Runtime data (keep dirs via .gitkeep)
 data/uploads/*
@@ -24,6 +25,8 @@ data/db/*
 data/temp/
 data/debug_images/
 data/eval_output/
+data/test_matrix/
+data/test_matrix_mini/
 !data/**/.gitkeep
 
 # SQLite databases
@@ -53,3 +56,6 @@ Thumbs.db
 
 # Office temp files
 ~$*
+
+# Model files (too large for git)
+models/*.gguf

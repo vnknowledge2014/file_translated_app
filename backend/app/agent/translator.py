@@ -15,9 +15,12 @@ import re
 import aiosqlite
 
 from app.config import settings
+from app.languages import get_language
+from app.domains import get_domain
 
-from app.ollama.client import OllamaClient
+from app.llm.base import LLMClient
 from app.ollama.exceptions import OllamaTimeoutError
+from app.agent.prompt_router import PromptRouter
 
 logger = logging.getLogger(__name__)
 
@@ -45,88 +48,6 @@ _FORMAT_RULES: dict[str, str] = {
     "md": _PLAINTEXT_RULES,
     "csv": _PLAINTEXT_RULES,
 }
-
-
-# ── Translation System Prompt ──
-
-TRANSLATION_SYSTEM_PROMPT = """You are a Japanese-to-Vietnamese translator.
-
-## INPUT FORMAT
-- Single segment: translate directly
-- Multiple segments separated by ||| → translate each, keep delimiter
-
-## OUTPUT FORMAT
-- Single → translated text only
-- Multiple → translated segments separated by |||
-- MUST output SAME NUMBER of segments as input
-- No explanations, no notes, ONLY the translation
-
-## RULES
-- Japanese (日本語) → Vietnamese (Tiếng Việt)
-- Keep English text AS-IS (do not translate English)
-- Keep special characters: ※, ●, ◆, →, etc.
-- Keep numbers and units: 100%, 3.14, 5GB
-- Keep proper nouns and brand names
-
-## QUALITY
-- Natural Vietnamese grammar (Subject-Verb-Object)
-- Correct Vietnamese diacritics (ă, â, ê, ô, ơ, ư, đ)
-- Meaningful translation (意訳), not word-by-word (直訳)
-- Ensure proper spacing between Vietnamese words at tag boundaries
-- If a <tagN>word</tagN> is followed by another word, ensure a space exists
-"""
-
-
-
-# ── Per file-type context hints ──
-
-TRANSLATE_CONTEXTS: dict[str, str] = {
-    "docx": """## CONTEXT: Word Document
-- Heading text → translate concisely
-- Body text → translate naturally
-- Table cells → translate as labels, keep short""",
-    "xlsx": """## CONTEXT: Excel Spreadsheet
-- Header cells → translate as column labels (short)
-- Data cells → translate descriptions
-- 完了→Hoàn thành, 未着手→Chưa bắt đầu, 進行中→Đang tiến hành""",
-    "pptx": """## CONTEXT: PowerPoint Presentation
-- Slide titles → concise, impactful
-- Bullet points → maintain list structure
-- Mixed JP/EN → translate only JP portions""",
-    "pdf": """## CONTEXT: PDF Document
-- May be from tables, paragraphs, or diagram labels
-- Translate what's available""",
-    "md": """## CONTEXT: Markdown Document
-- PRESERVE ALL markup: #, **, ```, |, >, -, []()
-- ONLY translate text between markup elements""",
-    "txt": "## CONTEXT: Plain text. Translate naturally.",
-    "csv": "## CONTEXT: CSV data. Translate text values only, not numbers/dates.",
-}
-
-
-def build_glossary_prompt(terms: list[dict]) -> str:
-    """Build glossary injection for translation prompt.
-
-    Args:
-        terms: List of glossary term dicts with 'jp', 'vi', and optional 'context'.
-
-    Returns:
-        Formatted glossary table or "" if empty.
-    """
-    if not terms:
-        return ""
-
-    lines = [
-        "## GLOSSARY (MUST use these translations)",
-        "| JP | VI | Context |",
-        "|:---|:---|:---|",
-    ]
-    for t in terms:
-        lines.append(f"| {t['jp']} | {t['vi']} | {t.get('context', '')} |")
-    lines.append(
-        "\nWhen you see any term above, you MUST use the specified translation."
-    )
-    return "\n".join(lines)
 
 
 # ── Batch Chunking ──
@@ -191,7 +112,7 @@ class Translator:
 
     def __init__(
         self,
-        client: OllamaClient,
+        client: LLMClient,
         model: str,
         max_concurrent: int = 1,
     ):
@@ -204,6 +125,8 @@ class Translator:
         """
         self.client = client
         self.model = model
+        self.router = PromptRouter()
+        # Concurrency limiter to prevent overloading Ollama
         self._semaphore = asyncio.Semaphore(max_concurrent)
         
         # Ensure db dir exists and use absolute path
@@ -215,42 +138,34 @@ class Translator:
         """Initialize sqlite cache table."""
         async with aiosqlite.connect(self.cache_db) as db:
             await db.execute(
-                "CREATE TABLE IF NOT EXISTS translations (source TEXT PRIMARY KEY, target TEXT)"
+                "CREATE TABLE IF NOT EXISTS translation_cache_v2 ("
+                "source TEXT, "
+                "source_lang TEXT, "
+                "target_lang TEXT, "
+                "model TEXT, "
+                "domain TEXT, "
+                "target TEXT, "
+                "PRIMARY KEY (source, source_lang, target_lang, model, domain)"
+                ")"
             )
             await db.commit()
 
-    async def _get_cached_translation(self, source: str) -> str | None:
+    async def _get_cached_translation(self, source: str, source_lang: str, target_lang: str, domain: str) -> str | None:
         async with aiosqlite.connect(self.cache_db) as db:
             async with db.execute(
-                "SELECT target FROM translations WHERE source = ?", (source,)
+                "SELECT target FROM translation_cache_v2 WHERE source = ? AND source_lang = ? AND target_lang = ? AND model = ? AND domain = ?", 
+                (source, source_lang, target_lang, self.model, domain)
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else None
 
-    async def _set_cached_translation(self, source: str, target: str):
+    async def _set_cached_translation(self, source: str, target: str, source_lang: str, target_lang: str, domain: str):
         async with aiosqlite.connect(self.cache_db) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO translations (source, target) VALUES (?, ?)",
-                (source, target),
+                "INSERT OR REPLACE INTO translation_cache_v2 (source, source_lang, target_lang, model, domain, target) VALUES (?, ?, ?, ?, ?, ?)",
+                (source, source_lang, target_lang, self.model, domain, target),
             )
             await db.commit()
-
-    def _build_system_prompt(
-        self, file_type: str, glossary: list[dict] | None = None
-    ) -> str:
-        """Build the full system prompt with context and glossary."""
-        system = TRANSLATION_SYSTEM_PROMPT
-        ctx = TRANSLATE_CONTEXTS.get(file_type, "")
-        if ctx:
-            system += "\n" + ctx
-        # Load format-specific rules (OOXML tags vs plaintext/markdown)
-        format_rules = _FORMAT_RULES.get(file_type, "")
-        if format_rules:
-            system += format_rules
-        gloss_prompt = build_glossary_prompt(glossary or [])
-        if gloss_prompt:
-            system += "\n" + gloss_prompt
-        return system
 
     def _validate_tags(self, original: str, translated: str) -> bool:
         """Validate that all <tagX> or </tagX> in original exist exactly in translated."""
@@ -258,64 +173,67 @@ class Translator:
         trans_tags = sorted(re.findall(r"</?tag\d+>", translated))
         return orig_tags == trans_tags
 
-    def _has_jp_leak(self, translated: str) -> bool:
-        """Detect untranslated Japanese characters left in the translated output.
+    def _has_source_leak(self, translated: str, source_lang: str) -> bool:
+        """Detect untranslated source language characters left in the output.
 
-        Returns True if Hiragana, Katakana, or CJK ideographs are found in the
+        Returns True if source language characters are found in the
         translated text — indicating the LLM failed to translate some portion.
-
-        Note: fullwidth digits/latin (\uff10-\uff5a) and halfwidth katakana
-        (\uff65-\uff9f) are intentionally excluded because they can legitimately
-        appear in Vietnamese technical contexts (e.g. product codes).
 
         Args:
             translated: The translated text returned by the LLM.
+            source_lang: The source language code to detect.
 
         Returns:
-            True if Japanese characters are detected (leak found).
+            True if source language characters are detected (leak found).
         """
-        _LEAK_RE = re.compile(
-            r"[\u3040-\u309F"  # Hiragana
-            r"\u30A0-\u30FA\u30FC-\u30FF"  # Katakana EXCLUDING ・(U+30FB)
-            r"\u4E00-\u9FFF"  # CJK Unified Ideographs (Kanji)
-            r"\u3400-\u4DBF]"  # CJK Extension A
-        )
-        return bool(_LEAK_RE.search(translated))
+        from app.utils.language_detect import has_source_language
+        return has_source_language(translated, source_lang)
 
     async def translate_batch(
         self,
         segments: list[dict],
         file_type: str,
         glossary: list[dict] | None = None,
+        domain_code: str = "general",
+        source_lang: str = "ja",
+        target_lang: str = "vi",
     ) -> list[dict]:
-        """Translate a batch of segments.
-
-        Strategy:
-        1. Join segment texts with |||
-        2. Send to LLM
-        3. Split response by |||
-        4. If count mismatch → fall back to 1-by-1 translation
-
-        Uses semaphore for concurrency control when called in parallel.
-
-        Args:
-            segments: List of segment dicts with 'text' field.
-            file_type: Document type for context.
-            glossary: Optional glossary terms.
-
-        Returns:
-            Same segments list with added "translated_text" field.
-        """
+        """Translate a batch of segments using a single prompt with ||| delimiter."""
         if not segments:
             return segments
 
-        system = self._build_system_prompt(file_type, glossary)
+        # Extract english terms upfront to detect mixed languages if any
+        # This acts as our "Language Composition" detection
+        from app.utils.language_detect import extract_english_terms, is_technical_term
+        all_terms: set[str] = set()
+        for s in segments:
+            for term in extract_english_terms(s["text"]):
+                if is_technical_term(term, domain_code):
+                    all_terms.add(term)
+        
+        mixed = []
+        if all_terms:
+            mixed = ["en"]  # For now, we flag English if there are English terms
+
+        # 1) Build Super-Prompt using Context Matrix
+        system = self.router.build_prompt(
+            source_lang=source_lang,
+            target_lang=target_lang,
+            domain=domain_code,
+            file_type=file_type,
+            mixed_languages=mixed
+        )
+
+        # 2) Optional glossary injection
+        if glossary:
+            terms = "\n".join([f"- {g['source']} -> {g['target']}" for g in glossary])
+            system += f"\n\n## GLOSSARY\nUse these strict translations:\n{terms}"
 
         # Determine segments that actually need translation (checking cache)
         # We pre-fill cached translated texts and gather uncached texts
         to_translate = []
         for seg in segments:
-            cache_hit = await self._get_cached_translation(seg["text"])
+            cache_hit = await self._get_cached_translation(seg["text"], source_lang, target_lang, domain_code)
             if cache_hit:
                 seg["translated_text"] = cache_hit
             else:
@@ -355,15 +273,15 @@ class Translator:
         if len(translated) == len(to_translate):
             for seg, trans in zip(to_translate, translated):
                 trans_clean = trans.strip()
-                if self._has_jp_leak(trans_clean):
+                if self._has_source_leak(trans_clean, source_lang):
                     logger.warning(
-                        f"JP leak detected in batch output for: {seg['text'][:60]!r}. "
+                        f"Source language leak detected in batch output for: {seg['text'][:60]!r}. "
                         f"Queueing for 1-by-1 retry."
                     )
                     needs_retry.append(seg)
                 elif self._validate_tags(seg["text"], trans_clean):
                     seg["translated_text"] = trans_clean
-                    await self._set_cached_translation(seg["text"], trans_clean)
+                    await self._set_cached_translation(seg["text"], trans_clean, source_lang, target_lang, domain_code)
                 else:
                     logger.warning(
                         f"Tag validation failed for segment. Queueing for RALPH retry."
@@ -377,7 +295,7 @@ class Translator:
             )
             needs_retry = list(to_translate)
 
-        # RALPH Loop: 1-by-1 retry with strict tag + JP-leak checking (max 3 attempts)
+        # RALPH Loop: 1-by-1 retry with strict tag + source-leak checking (max 3 attempts)
         for seg in needs_retry:
             max_attempts = settings.TRANSLATION_MAX_RETRIES
             success = False
@@ -393,10 +311,12 @@ class Translator:
                         f"{re.findall(r'</?tag\d+>', seg['text'])}"
                     )
                 if attempt > 1:
+                    src = get_language(source_lang)
+                    tgt = get_language(target_lang)
                     warnings.append(
-                        "[WARNING] You MUST translate ALL Japanese text to Vietnamese. "
-                        "Do NOT leave any Kanji (漢字), Hiragana (ひらがな), or Katakana (カタカナ) "
-                        "in the output. Every Japanese word must become a Vietnamese word."
+                        f"[WARNING] You MUST translate ALL {src.name} text to {tgt.name}. "
+                        f"Do NOT leave any {src.name} characters "
+                        f"in the output. Every {src.name} word must become a {tgt.name} word."
                     )
                 if warnings:
                     retry_system += "\n\n" + "\n".join(warnings)
@@ -418,7 +338,7 @@ class Translator:
 
                 single_clean = single_response.strip()
 
-                jp_leak = self._has_jp_leak(single_clean)
+                jp_leak = self._has_source_leak(single_clean, source_lang)
                 tags_ok = self._validate_tags(
                     seg["text"], single_clean
                 )
@@ -434,7 +354,7 @@ class Translator:
                 else:
                     # Both checks pass — accept and cache
                     seg["translated_text"] = single_clean
-                    await self._set_cached_translation(seg["text"], single_clean)
+                    await self._set_cached_translation(seg["text"], single_clean, source_lang, target_lang, domain_code)
                     success = True
                     break
 
@@ -453,6 +373,9 @@ class Translator:
         batches: list[list[dict]],
         file_type: str,
         glossary: list[dict] | None = None,
+        domain_code: str = "general",
+        source_lang: str = "ja",
+        target_lang: str = "vi",
         on_progress: callable | None = None,
     ) -> int:
         """Translate all batches concurrently using asyncio.gather.
@@ -461,6 +384,7 @@ class Translator:
             batches: Pre-chunked segment batches.
             file_type: Document type for context.
             glossary: Optional glossary terms.
+            domain_code: Active domain code.
             on_progress: Callback(translated_count, total_count) for progress.
 
         Returns:
@@ -474,7 +398,7 @@ class Translator:
 
         async def _translate_with_progress(batch: list[dict]) -> list[dict]:
             nonlocal completed
-            result = await self.translate_batch(batch, file_type, glossary)
+            result = await self.translate_batch(batch, file_type, glossary, domain_code, source_lang, target_lang)
             completed += len(result)
             if on_progress:
                 on_progress(completed, total)

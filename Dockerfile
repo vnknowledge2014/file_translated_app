@@ -1,7 +1,25 @@
+# ==========================================
+# 1. Frontend Build Stage
+# ==========================================
+FROM node:22-slim AS frontend-builder
+WORKDIR /frontend
+
+# Copy package and install
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Copy source and build
+COPY frontend/ .
+RUN npx @inlang/paraglide-js compile --project project.inlang --outdir src/lib/paraglide
+RUN npm run build
+
+# ==========================================
+# 2. Production Stage
+# ==========================================
 FROM python:3.13-slim
 
-LABEL maintainer="JP-VI Translation Tool"
-LABEL description="Air-gapped Japanese-to-Vietnamese document translation"
+LABEL maintainer="Multilingual Translation Tool"
+LABEL description="Multilingual document translation powered by AI"
 
 # System deps for document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,8 +35,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY backend/app/ /app/app/
 
-# Copy frontend
-COPY frontend/ /app/frontend/
+# Copy built frontend
+COPY --from=frontend-builder /frontend/build/ /app/frontend/
 
 # Create data directories
 RUN mkdir -p /data/uploads /data/output /data/temp /data/db

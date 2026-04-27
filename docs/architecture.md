@@ -1,6 +1,6 @@
 # Architecture Deep-Dive
 
-> Deterministic Extract → Translate → Reconstruct pipeline.
+> Deterministic Extract → Translate → Reconstruct pipeline with multilingual support.
 
 ---
 
@@ -9,19 +9,19 @@
 ```
 ┌─── Deployment (Docker Compose) ──────────────────────────┐
 │                                                          │
-│  ┌──────────┐    ┌──────────────┐    ┌────────────────┐  │
-│  │ Frontend │    │  FastAPI App │    │    Ollama      │  │
-│  │ :8000    │───→│  :8000       │───→│    :11434      │  │
-│  │          │    │              │    │                │  │
-│  │ index.   │    │ Orchestrator │    │ gemma4:e4b     │  │
-│  │ html     │    │ Pipeline     │    │ (9.6GB)        │  │
-│  └──────────┘    │              │    └────────────────┘  │
-│                  │ ┌─ SQLite ─┐ │                        │
-│                  │ │ jobs     │ │                        │
-│                  │ │ glossary │ │                        │
-│                  │ │ cache    │ │  translations.db       │
-│                  │ └──────────┘ │                        │
-│                  └──────────────┘                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │  SvelteKit   │  │  FastAPI App │  │    Ollama      │  │
+│  │  Frontend    │  │  :8000       │  │    :11434      │  │
+│  │  (Static SPA)│─→│              │─→│                │  │
+│  │  Paraglide   │  │ Orchestrator │  │ gemma4:e4b     │  │
+│  │  i18n        │  │ Pipeline     │  │ (or custom)    │  │
+│  └──────────────┘  │              │  └────────────────┘  │
+│                    │ ┌─ SQLite ─┐ │                       │
+│                    │ │ jobs     │ │                       │
+│                    │ │ glossary │ │                       │
+│                    │ │ cache    │ │  translations.db      │
+│                    │ └──────────┘ │                       │
+│                    └──────────────┘                       │
 │                                                          │
 │  Volume: /data/                                          │
 │  ├── uploads/    (original files)                        │
@@ -29,6 +29,23 @@
 │  ├── temp/       (temporary files)                       │
 │  └── db/         (translations.db)                       │
 └──────────────────────────────────────────────────────────┘
+```
+
+### Docker Build Pipeline
+
+The Dockerfile uses a **multi-stage build**:
+
+```
+Stage 1: node:22-slim (frontend-builder)
+  ├── npm ci
+  ├── paraglide-js compile (i18n → JS modules)
+  └── vite build → /frontend/build/
+
+Stage 2: python:3.13-slim (production)
+  ├── pip install requirements.txt
+  ├── COPY backend/app/ → /app/app/
+  ├── COPY --from=frontend-builder /frontend/build/ → /app/frontend/
+  └── CMD uvicorn app.main:app
 ```
 
 ### Configuration
@@ -39,17 +56,82 @@ See `README.md` → Configuration section for the full settings table.
 
 ---
 
-## Pipeline — Adaptive 5-Phase Architecture
+## Frontend Architecture
+
+### Technology Stack
+
+| Technology | Purpose |
+|:-----------|:--------|
+| **SvelteKit 2** | Component framework + routing |
+| **Paraglide-JS** | Compiler-based i18n (type-safe, tree-shakeable) |
+| **adapter-static** | Builds SPA served by FastAPI |
+| **TypeScript** | Type-safe API client + stores |
+
+### Component Structure
+
+```
+src/
+├── lib/
+│   ├── components/
+│   │   ├── LanguageSwitcher.svelte   # 🌐 UI language toggle (EN/VI/JA)
+│   │   ├── LanguageBar.svelte        # Source/Target/Domain dropdowns
+│   │   ├── UploadZone.svelte         # Drag-drop with XLIFF options
+│   │   ├── JobCard.svelte            # Job progress + download
+│   │   ├── GlossaryTable.svelte      # Glossary CRUD
+│   │   └── BilingualEditor.svelte    # Segment review modal
+│   ├── stores/
+│   │   ├── config.ts                 # Language/domain state
+│   │   └── i18n.ts                   # Paraglide language bindings
+│   ├── api.ts                        # Centralized API client
+│   └── paraglide/                    # Auto-generated (do not edit)
+├── routes/
+│   ├── +layout.svelte                # Global layout + CSS variables
+│   ├── +layout.ts                    # Paraglide SSR config
+│   └── +page.svelte                  # Main page (composes all components)
+└── app.css                           # Design system (dark glassmorphism)
+```
+
+### i18n Workflow
+
+UI translations are managed through a centralized Excel file:
+
+```
+ui_translations.xlsx  ──→  i18n_manager.py  ──→  messages/en.json
+                                                  messages/vi.json
+                                                  messages/ja.json
+```
+
+**Key decisions:**
+- **UI Language** (Paraglide) is decoupled from **Translation Languages** (backend API)
+- Message keys use underscore format (`header_title`) for valid JS identifiers
+- Paraglide compiles JSON → tree-shakeable JS modules at build time
+
+### Design System
+
+Dark glassmorphism aesthetic using CSS custom properties:
+
+```css
+--bg-primary: #0a0f1c        /* Deep navy background */
+--bg-glass: rgba(255,255,255,0.03)  /* Glass effect */
+--accent-cyan: #06b6d4       /* Primary accent */
+--accent-emerald: #10b981    /* Success/active states */
+--gradient-primary: linear-gradient(135deg, #667eea, #764ba2)
+```
+
+---
+
+## Translation Pipeline — Adaptive 5-Phase Architecture
 
 ```
 Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ [SCORE] ──→ [REVIEW] ──→ [RECONSTRUCT] ──→ Output File
                XML Zip Scan   with text      LLM call      Confidence   Web Editor   Zip Clone       _vi.ext
-               No wrapper     originals      gemma4:e4b     0.0–1.0      or XLIFF     No corruption
-                                               │              │
-                                         cache lookup    HIGH → auto-approve
-                                      (translations.db)  LOW  → needs human edit
+               No wrapper     originals      (Ollama)       0.0–1.0      or XLIFF     No corruption
+                                                │              │
+                                          cache lookup    HIGH → auto-approve
+                                       (translations.db)  LOW  → needs human edit
+```
 
-> **Note**: The SCORE and REVIEW phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely — reviewed translations from a CAT tool are merged directly into segments before reconstruction.
+> **Note**: The SCORE and REVIEW phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely.
 
 ### Phase 1: EXTRACT (Deterministic)
 
@@ -57,27 +139,24 @@ Each file type has a dedicated extractor that walks every text-bearing node:
 
 | File Type | Traversal Strategy | Key Behavior |
 |:----------|:-------------------|:-------------|
-| DOCX / PPTX | `zipfile` XML parsing of `document.xml`, `slide*.xml`, `drawing*.xml` | Eliminates Python wrappers for zero-loss parsing. Preserves macros/charts. Binds sibling Text Runs into unified tag chunks (e.g., `text<tag1>bold</tag1>`). Skips hyperlink citation anchors. |
-| XLSX | `zipfile` XML parsing of `xl/sharedStrings.xml` + `xl/worksheets/*.xml` + `xl/drawings/*.xml` | Extracts shared strings (standard cells), inline strings (`inlineStr`), and drawing text. `xl/workbook.xml` scanned for sheet names to translate. |
-| TXT/MD | Line-by-line scan | Detects ASCII diagram blocks via `` ``` `` fences. Extracts JP tokens from diagrams separately as `diagram_token` type. Extracts table cells as `table_cell` type. |
+| DOCX / PPTX | `zipfile` XML parsing of `document.xml`, `slide*.xml`, `drawing*.xml` | Zero-loss parsing. Preserves macros/charts. Binds sibling Text Runs into unified tag chunks. |
+| XLSX | `zipfile` XML parsing of `xl/sharedStrings.xml` + `xl/worksheets/*.xml` + `xl/drawings/*.xml` | Extracts shared strings, inline strings, drawing text, and sheet names. |
+| TXT/MD | Line-by-line scan | Detects ASCII diagram blocks. Extracts JP tokens from diagrams separately. |
 | CSV | Cell-by-cell scan | Skips numeric/date cells |
 
-**Japanese Detection**: Every text node passes through `has_japanese()` which checks Unicode ranges (Hiragana, Katakana, CJK Unified Ideographs, fullwidth digits/latin, halfwidth katakana). Known JP visual symbols (・〇△ー etc.) are stripped before detection to avoid false positives from retained bullet markers.
+**Source Language Detection**: Auto-detection uses Unicode block analysis (Hiragana, Katakana, CJK, Arabic, Devanagari, Hangul, Thai, Cyrillic) to identify the source language when set to `auto`.
 
-**Tag Stripping & Long Segment Splitting** (in extractor, not translator):
-- Paragraphs with >8 inline tags (`MAX_INLINE_TAGS`) are stripped of tags for plain-text translation — LLM reliably handles ≤8 tags but consistently fails tag validation at >8.
-- Stripped paragraphs and paragraphs exceeding 400 characters (`MAX_SEGMENT_CHARS`) are split at sentence boundaries (。！？) to prevent LLM timeout.
-- Both thresholds are configurable via `.env`.
-
-**Output**: `list[dict]` — each segment has `text`, `location`, `type`.
+**Tag Stripping & Long Segment Splitting** (in extractor):
+- Paragraphs with >8 inline tags (`MAX_INLINE_TAGS`) are stripped for plain-text translation
+- Segments exceeding 400 characters (`MAX_SEGMENT_CHARS`) are split at sentence boundaries
 
 ### Phase 2: TRANSLATE (LLM)
 
 ```
-segments[] ──→ chunk_segments(max_chars=BATCH_MAX_CHARS, max_segs=BATCH_MAX_SEGMENTS)
+segments[] ──→ chunk_segments(max_chars, max_segs)
                     │
                     ▼
-              batches[] ──→ asyncio.gather (semaphore=MAX_CONCURRENT_BATCHES)
+              batches[] ──→ asyncio.gather (semaphore)
                                 │
                     ┌───────────┼───────────┐
                     ▼           ▼           ▼
@@ -89,120 +168,64 @@ segments[] ──→ chunk_segments(max_chars=BATCH_MAX_CHARS, max_segs=BATCH_MA
               └─ miss → build prompt + call Ollama
                     │
                     ▼
-              "text_A|||text_B|||text_C"  ──→  Ollama /api/generate
-                    │                          temperature=TRANSLATION_TEMPERATURE
-                    ▼                          num_ctx=TRANSLATION_NUM_CTX
-              "dịch_A|||dịch_B|||dịch_C"  ──→  split("|||")
+              "text_A|||text_B"  ──→  Ollama /api/generate
                     │
-                    ├─ JP leak check (CJK chars in output?) ── fail ──→ 1-by-1 retry
-                    ├─ tag validation (match original tags?) ── fail ──→ RALPH Loop (retry)
-                    ├─ count match  → assign translated_text, cache result
-                    └─ count mismatch → fallback to 1-by-1
+              "dịch_A|||dịch_B"  ──→  split("|||")
+                    │
+                    ├─ source leak check ── fail ──→ 1-by-1 retry
+                    ├─ tag validation    ── fail ──→ RALPH Loop
+                    └─ count match       → cache result
 ```
 
-**Translation Cache**: SQLite database (`translations.db`) maps source text → target text. Before calling Ollama, each segment is checked against the cache. Cache hits skip the LLM call entirely, reducing latency and cost. Only clean translations (no JP leaks, valid tags) are cached.
+**Prompt Architecture**: The system prompt is dynamically assembled from:
+1. **Base translation instruction** (source → target)
+2. **Source language rules** (`prompts/skills/languages/source/{lang}.md`)
+3. **Target language rules** (`prompts/skills/languages/target/{lang}.md`)
+4. **Domain rules** (`prompts/skills/domains/{domain}.md`)
+5. **Format rules** (`prompts/rules/formats/{format}.md`)
+6. **Glossary terms** (user-defined mandatory translations)
 
-**Performance**: Parallel batches with `asyncio.Semaphore(MAX_CONCURRENT_BATCHES)`.
-Ollama configured with `OLLAMA_NUM_PARALLEL=4` and `OLLAMA_KEEP_ALIVE=24h`.
-
-**RALPH Loop (Retry After Lost Prompt Hallucination)**: When a batch translation fails tag validation or count matching, segments are retried 1-by-1 with cumulative warning messages appended to the system prompt. Max attempts configurable via `TRANSLATION_MAX_RETRIES` (default: 3). Retry temperature is reduced by 0.1 from the configured temperature. On final failure, the best-effort output is used (not cached).
-
-**Per-file-type Context Hints**: The system prompt is extended with format-specific guidance:
-- `docx`: Heading → concise, body → natural, table cells → short labels
-- `xlsx`: Headers → column labels, includes common status translations (完了→Hoàn thành, 未着手→Chưa bắt đầu, 進行中→Đang tiến hành)
-- `pptx`: Titles → impactful, maintain bullet structure, translate only JP portions
-- `md`: PRESERVE ALL markup, only translate text between markup elements
-- `txt` / `csv`: Translate naturally / text values only
+**RALPH Loop** (Retry After Lost Prompt Hallucination): When tag validation fails, segments are retried 1-by-1 with cumulative warning messages. Max attempts configurable via `TRANSLATION_MAX_RETRIES`.
 
 ### Phase 3: RECONSTRUCT (Deterministic)
 
 | File Type | Strategy |
 |:----------|:---------|
-| DOCX / PPTX | Non-destructive `zipfile` stream clone. Deserializes `<tagX>` into inline XML runs `<r><rPr>...</rPr><t>...`. Skips modifying pure binary/calc files guaranteeing 100% structural fidelity. XML namespace declarations and declaration headers are preserved via `preserve_xml_declaration()`. Word boundary spacing fixed via `_fix_run_boundaries()`. |
-| XLSX | **Multi-strategy approach**: (1) `workbook.xml` — regex replaces `<sheet name="...">` only, preserving all namespace prefixes; sheet names sanitized (31-char limit, forbidden chars stripped, collision-free); (2) worksheet `<f>` formulas — sheet name refs updated, `[N]Sheet!` external refs left intact; (3) `<definedName>` — internal sheet refs updated; (4) **drawings + charts** — ET parse with direct `ET.tostring()` serialization (bypasses `preserve_xml_declaration` to preserve inline xmlns for `mc:`, `a14:`, `a16:` namespaces); (5) **sharedStrings** — ET parse with full phonetic stripping (`_strip_all_phonetics`); (6) **Japanese font patching** — MS Gothic, Meiryo etc. replaced with Arial/Times New Roman; (7) **stale cached `<v>` values** stripped from formula cells; (8) `calcChain.xml` **dropped** with references cleaned from `[Content_Types].xml` and `workbook.xml.rels`. |
-| TXT/MD | Read lines → for each segment find line by index → replace. Markdown prefixes (`#`, `-`, `>`) preserved; LLM-hallucinated duplicate prefixes stripped. ASCII diagrams: **global column expansion** algorithm. |
-
-**XLSX Drawing Serialization Note**: Drawings (flowcharts, annotations, etc.) use inline xmlns declarations (`xmlns:mc`, `xmlns:a14`, `xmlns:a16`) on child elements rather than the root element. The standard `preserve_xml_declaration()` function replaces ET's root tag (which has all xmlns hoisted) with the original root tag (which lacks these xmlns), causing Excel corruption. Drawings therefore use `ET.tostring()` directly, which correctly hoists all inline xmlns to the root — producing semantically equivalent, valid XML.
+| DOCX / PPTX | Non-destructive `zipfile` stream clone. Deserializes `<tagX>` into inline XML runs. |
+| XLSX | Multi-strategy: workbook.xml regex surgery, formula ref updates, drawings via ET, sharedStrings with phonetic stripping, font patching, calcChain cleanup. |
+| TXT/MD | Line replacement with Markdown prefix preservation + ASCII diagram grid expansion. |
 
 ---
 
 ## XLIFF Bilingual Exchange Layer
 
-After translation, segments can be exported to **XLIFF** (XML Localization Interchange File Format) for human review in CAT tools, then imported back to reconstruct the final document.
-
 ### Dual-Version Support
 
 | Feature | XLIFF 1.2 (default) | XLIFF 2.1 |
 |:--------|:--------------------|:----------|
-| Namespace | `urn:oasis:names:tc:xliff:document:1.2` | `urn:oasis:names:tc:xliff:document:2.1` |
 | Segment element | `<trans-unit>` | `<unit>/<segment>` |
 | Inline tags | `<bpt>`/`<ept>`, `<x/>` | `<pc>`, `<ph/>` |
-| CAT compatibility | Universal (Trados, memoQ, OmegaT, Phrase) | Partial |
+| CAT compatibility | Universal (Trados, memoQ, OmegaT) | Partial |
 
-Import auto-detects version from root element. Export allows user to explicitly choose `1.2` or `2.1` via UI or CLI (`--xliff-version`).
+### In-App Review Editor
 
-### In-App Review Editor (Web / CLI)
-
-Instead of relying solely on external CAT tools, the system provides a native **In-App Review Editor**:
-- **SQLite Storage**: Translated segments are persisted to `segment_reviews` table.
-- **Web Editor**: A split-pane grid UI highlighting LOW/MEDIUM segments with debounced auto-save.
-- **CLI TUI**: `python scripts/review_cli.py` allows pure ANSI terminal-based review.
-- **Direct Reconstruction**: Users can edit and instantly click "Lưu & Xuất File" to trigger document reconstruction directly from the edited segments.
-
-### Inline Tag Mapping
-
-Pipeline `<tagX>` markers are mapped to XLIFF inline elements so CAT tools can protect formatting:
-
-```
-Source:   text<tag1>bold</tag1>more<tag2/>break
-XLIFF 1.2: text<bpt id="1">...</bpt>bold<ept id="1">...</ept>more<x id="2"/>break
-XLIFF 2.1: text<pc id="1" type="fmt">bold</pc>more<ph id="2" type="other"/>break
-```
-
-Roundtrip fidelity: export → CAT edit → import preserves all tags.
-
-### XLIFF State Machine
-
-Each segment's `<target>` carries a lifecycle state:
-
-```
-new → translated → needs-review-translation → final → signed-off
-```
-
-- **new**: No target text (blank XLIFF for manual mode)
-- **translated**: LLM translated, confidence >= 0.6
-- **needs-review-translation**: LLM translated, confidence < 0.6
-- **final**: Human-approved or auto-approved (HIGH confidence)
-
-### Operating Modes
-
-| Mode | CLI | Description |
-|:-----|:----|:------------|
-| **Full Auto** | `--file doc.docx` | Translate + reconstruct (XLIFF export optional) |
-| **Assisted** | `--file doc.docx --export-xliff` | Translate + export bilingual XLIFF for review |
-| **Manual** | `--file doc.docx --export-xliff --no-translate` | Export blank XLIFF for external translation |
-| **Import** | `--file doc.docx --import-xliff file.xlf` | Skip LLM, reconstruct from reviewed XLIFF |
+- **Web Editor**: Split-pane grid highlighting LOW/MEDIUM segments with auto-save.
+- **CLI TUI**: `python scripts/review_cli.py` for terminal-based review.
+- **Direct Reconstruction**: Edit segments and trigger rebuild without XLIFF roundtrip.
 
 ---
 
 ## Confidence Scoring
 
-After translation, each segment receives a **confidence score** (0.0–1.0) based on multi-signal heuristics:
-
 | Signal | Penalty | Trigger |
 |:-------|:--------|:--------|
-| JP Leak | -0.50 | CJK characters remaining in Vietnamese output |
+| Source Leak | -0.50 | Source language characters remaining in output |
 | Tag Mismatch | -0.40 | Missing or hallucinated `<tagX>` markers |
 | Length Anomaly | -0.30 | Target/source length ratio < 0.3 or > 3.0 |
 | Retry Penalty | -0.10/retry | Segments that required RALPH loop retries |
 | Cache Boost | +0.20 | Previously validated translation from cache |
 
-**Classification thresholds** (configurable):
-- **HIGH** (>= 0.85): Auto-approved, no review needed
-- **MEDIUM** (0.60–0.85): Flagged for optional review
-- **LOW** (< 0.60): Marked `needs-review-translation` in XLIFF
-
-**Progressive Automation**: As translation cache grows from human edits, cache hit rate increases → more segments auto-approved → human review effort decreases over time.
+**Classification**: HIGH (≥ 0.85) → auto-approved, MEDIUM (0.60–0.85) → optional review, LOW (< 0.60) → needs review.
 
 ---
 
@@ -213,138 +236,22 @@ After translation, each segment receives a **confidence score** (0.0–1.0) base
 jobs
 ├── id (UUID hex, PK)
 ├── filename, file_type, file_path
+├── source_lang, target_lang, domain
 ├── output_path (nullable — set on completion)
-├── status: pending → extracting → translating → scoring → importing → exporting → reconstructing → verifying → completed | failed
-├── progress (0.0–1.0)
-├── progress_message (nullable — human-readable status)
-├── error_message (nullable)
+├── status: pending → extracting → translating → scoring → reconstructing → completed | failed
+├── progress (0.0–1.0), progress_message
 ├── segments_count, duration_seconds
 ├── created_at, updated_at
 └── → job_attempts (1:N)
-```
-
-### JobAttempt Table
-```
-job_attempts
-├── id (auto PK)
-├── job_id (FK → jobs)
-├── attempt_number, phase
-├── code_generated, stdout, stderr
-├── success, error_message, duration_seconds
-└── created_at
 ```
 
 ### GlossaryTerm Table
 ```
 glossary
 ├── id (auto PK)
-├── jp (unique), vi, context
+├── source_term (unique), target_term, context
 └── created_at
 ```
-
----
-
-## API Contract
-
-### POST `/api/upload`
-```json
-// Request: multipart/form-data with file field
-// Response:
-{ "job_id": "abc123...", "filename": "report.docx", "file_type": "docx", "status": "pending" }
-```
-
-### GET `/api/jobs`
-```json
-// List recent translation jobs (max 20, newest first)
-[
-  {
-    "id": "abc123...",
-    "filename": "report.docx",
-    "file_type": "docx",
-    "status": "completed",
-    "progress": 1.0,
-    "progress_message": "Hoàn thành! 42 đoạn, 15.3s",
-    "segments_count": 42,
-    "duration_seconds": 15.3,
-    "created_at": "2026-04-15 10:30:00+00:00"
-  }
-]
-```
-
-### GET `/api/jobs/{job_id}`
-```json
-{
-  "id": "abc123...",
-  "filename": "report.docx",
-  "file_type": "docx",
-  "status": "completed",
-  "progress": 1.0,
-  "progress_message": "Hoàn thành! 42 đoạn, 15.3s",
-  "segments_count": 42,
-  "duration_seconds": 15.3,
-  "output_path": "/data/output/report_vi.docx",
-  "created_at": "2026-04-15 10:30:00+00:00",
-  "updated_at": "2026-04-15 10:30:15+00:00",
-  "attempts": [{ "attempt": 1, "phase": "translating", "success": true, "duration_seconds": 12.0 }]
-}
-```
-
-### GET `/api/jobs/{job_id}/segments`
-```json
-// Fetch translated segments for In-App Review Editor (supports ?filter=pending,edited)
-{
-  "job_id": "abc123...",
-  "total": 42,
-  "segments": [
-    { "index": 0, "source": "こんにちは", "target": "Xin chào", "edited": null, "confidence": 0.95, "status": "approved" }
-  ]
-}
-```
-
-### PUT `/api/jobs/{job_id}/segments/{index}`
-Update a segment's translation directly from the Web Editor.
-
-### POST `/api/jobs/{job_id}/segments/reconstruct`
-Triggers Phase 3 reconstruction using human-edited segments from the DB, bypassing XLIFF export/import.
-
-### GET `/api/download/{job_id}`
-Binary file download of the translated output. Response filename follows the pattern `original_vi.ext`.
-
-### GET `/api/health`
-```json
-{ "status": "ok", "ollama": "connected" }
-```
-
-### POST `/api/import-xliff`
-```
-Request: multipart/form-data
-  - xliff_file: .xlf file (reviewed XLIFF from CAT tool)
-  - original_file: original source document (.docx, .xlsx, etc.)
-
-Response: Binary file download (reconstructed translated document)
-  Content-Disposition: attachment; filename="original_vi.ext"
-```
-
-Workflow: Extract segments from original → Import translations from XLIFF → Merge → Reconstruct → Download. No LLM call needed.
-
----
-
-## Translation Quality Controls
-
-| Control | Implementation |
-|:--------|:---------------|
-| System prompt | Enforces JP→VI only, keep English/numbers/symbols |
-| Omni Skills | `inline_tag_translation_rule.md` loaded into LLM system prompt — strict rules for `<tagX>` preservation with few-shot examples |
-| Tag Validator | Python regex catches missing/hallucinated `<tagX>` tags post-generation and triggers RALPH loop retry (configurable max attempts per segment) |
-| JP Leak Detector | CJK character regex (`[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]`) detects untranslated Hiragana, Katakana, and Kanji in output; queues 1-by-1 retry with explicit anti-leak warnings |
-| Translation Cache | SQLite `translations.db` — segments with cached translations skip LLM call entirely; only clean translations (no leaks, valid tags) are cached |
-| Glossary injection | User-defined `GlossaryTerm` table injected into system prompt as mandatory translation table |
-| Count mismatch fallback | Auto-retries 1-by-1 if batch `\|\|\|`-delimited response has wrong segment count |
-| Per-file-type context | Format-specific prompt extensions guide LLM behavior (e.g., "PRESERVE ALL markup" for Markdown) |
-| Hallucinated prefix strip | Plaintext reconstructor strips duplicate Markdown prefixes (`#`, `-`, `>`) and trailing pipes that LLM may hallucinate into translations |
-| **Confidence Scoring** | Multi-signal heuristic (JP leak -0.5, tag mismatch -0.4, length anomaly -0.3, retry -0.1, cache +0.2) classifies segments into HIGH/MEDIUM/LOW for adaptive review triage |
-| **In-App Review** | Web UI and CLI TUI allow direct editing of LOW/MEDIUM confidence segments before reconstruction |
-| **XLIFF Exchange** | Bilingual .xlf export (v1.2 or v2.1) enables human review in CAT tools; reviewed XLIFF import skips LLM entirely |
 
 ---
 
@@ -352,7 +259,7 @@ Workflow: Extract segments from original → Import translations from XLIFF → 
 
 - **No code generation** — the system never generates or executes arbitrary code
 - **No sandbox needed** — all extraction/reconstruction is hardcoded library traversal
-- **Air-gapped** — Ollama runs locally, no outbound network calls
+- **Air-gapped capable** — Ollama runs locally, no outbound network calls required
 - **Docker isolation** — app container has limited filesystem access via volume mounts
-- **Per-pipeline OllamaClient** — each translation job creates a fresh HTTP client to prevent timeout-corrupted state from affecting other requests
+- **Per-pipeline OllamaClient** — each job creates a fresh HTTP client to prevent state corruption
 - **Environment secrets** — `.env` file is gitignored; `.env.example` template committed without secrets

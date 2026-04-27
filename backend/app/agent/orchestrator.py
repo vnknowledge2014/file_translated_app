@@ -26,7 +26,7 @@ class Orchestrator:
 
     Steps:
     1. EXTRACTING: Deterministic extraction (python-docx/openpyxl/python-pptx)
-    2. TRANSLATING: LLM batch translates JP → VI (parallel batches)
+    2. TRANSLATING: LLM batch translates source → target (parallel batches)
     3. RECONSTRUCTING: Clone original → replace text deterministically
     4. VERIFYING: Check output file integrity
     """
@@ -63,10 +63,13 @@ class Orchestrator:
         job_id: str,
         output_path: str,
         glossary: list[dict] | None = None,
+        domain_code: str = "general",
         export_xliff_flag: bool = False,
         xliff_version: str = "1.2",
         import_xliff_path: str | None = None,
         no_translate: bool = False,
+        source_lang: str = "ja",
+        target_lang: str = "vi",
     ) -> dict:
         """Run complete translation pipeline.
 
@@ -144,14 +147,14 @@ class Orchestrator:
                     )
 
                 translated_count = await self.translator.translate_all(
-                    batches, file_type, glossary, on_progress=_on_translate_progress
+                    batches, file_type, glossary, domain_code=domain_code, source_lang=source_lang, target_lang=target_lang, on_progress=_on_translate_progress
                 )
 
                 logger.info(f"[{job_id}] Translated {translated_count} segments")
 
             # ── CONFIDENCE SCORING ──
             self._emit("scoring", 0.78, "Scoring translation confidence...")
-            confidence_result = classify_segments(segments)
+            confidence_result = classify_segments(segments, domain_code=domain_code, source_lang=source_lang)
             stats = confidence_result["stats"]
             logger.info(
                 f"[{job_id}] Confidence: {stats['high_count']} HIGH, "

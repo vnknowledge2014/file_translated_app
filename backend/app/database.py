@@ -14,6 +14,9 @@ from app.models import Base, GlossaryTerm, Job, JobAttempt, SegmentReview
 async def init_db(database_url: str) -> tuple:
     """Initialize database, create all tables.
 
+    Also runs lightweight schema migrations for existing databases
+    (e.g., glossary table column rename from jp/vi to source_text/target_text).
+
     Args:
         database_url: SQLAlchemy async database URL.
 
@@ -25,6 +28,38 @@ async def init_db(database_url: str) -> tuple:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        # Lightweight migration: add new columns to existing tables if missing
+        # This handles the transition from the old JP/VI-only schema
+        try:
+            # Check if glossary table has the old schema
+            result = await conn.execute(text("PRAGMA table_info(glossary)"))
+            columns = {row[1] for row in result.fetchall()}
+
+            if "jp" in columns and "source_text" not in columns:
+                # Migrate old schema: rename jp→source_text, vi→target_text
+                await conn.execute(text("ALTER TABLE glossary RENAME TO glossary_old"))
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.execute(text(
+                    "INSERT INTO glossary (source_lang, target_lang, source_text, target_text, context, created_at) "
+                    "SELECT 'ja', 'vi', jp, vi, context, created_at FROM glossary_old"
+                ))
+                await conn.execute(text("DROP TABLE glossary_old"))
+
+            # Add source_lang/target_lang/domain to jobs if missing
+            result = await conn.execute(text("PRAGMA table_info(jobs)"))
+            job_columns = {row[1] for row in result.fetchall()}
+            if "source_lang" not in job_columns:
+                await conn.execute(text("ALTER TABLE jobs ADD COLUMN source_lang TEXT NOT NULL DEFAULT 'ja'"))
+                await conn.execute(text("ALTER TABLE jobs ADD COLUMN target_lang TEXT NOT NULL DEFAULT 'vi'"))
+            if "domain" not in job_columns:
+                await conn.execute(text("ALTER TABLE jobs ADD COLUMN domain TEXT NOT NULL DEFAULT 'general'"))
+
+            # Add domain to glossary if missing
+            if "domain" not in columns:  # columns is table_info(glossary) from earlier
+                await conn.execute(text("ALTER TABLE glossary ADD COLUMN domain TEXT NOT NULL DEFAULT 'general'"))
+        except Exception:
+            pass  # Migration already done or fresh DB
+
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return engine, session_factory
 
@@ -34,6 +69,9 @@ async def create_job(
     filename: str,
     file_type: str,
     file_path: str,
+    domain: str = "general",
+    source_lang: str = "ja",
+    target_lang: str = "vi",
 ) -> Job:
     """Create new job with status='pending'.
 
@@ -42,15 +80,20 @@ async def create_job(
         filename: Original filename.
         file_type: Detected file type (docx, xlsx, etc.).
         file_path: Path to uploaded file.
+        domain: Domain context for translation.
 
     Returns:
         Created Job instance.
     """
+    from app.config import settings
     job = Job(
         id=uuid.uuid4().hex,
         filename=filename,
         file_type=file_type,
         file_path=file_path,
+        domain=domain,
+        source_lang=source_lang,
+        target_lang=target_lang,
         status="pending",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -302,4 +345,119 @@ async def approve_high_segments(
         seg.status = "approved"
     await session.commit()
     return len(segments)
+
+
+async def get_all_glossary_terms(
+    session: AsyncSession,
+    source_lang: str | None = None,
+    target_lang: str | None = None,
+    domain: str | None = None,
+) -> list[GlossaryTerm]:
+    """Get all glossary terms, optionally filtered by language pair and domain.
+
+    Args:
+        session: Async database session.
+        source_lang: Optional source language filter (ISO 639-1).
+        target_lang: Optional target language filter (ISO 639-1).
+        domain: Optional domain filter.
+
+    Returns:
+        List of GlossaryTerm instances ordered by created_at.
+    """
+    query = select(GlossaryTerm)
+    if source_lang:
+        query = query.where(GlossaryTerm.source_lang == source_lang)
+    if target_lang:
+        query = query.where(GlossaryTerm.target_lang == target_lang)
+    if domain:
+        query = query.where(GlossaryTerm.domain == domain)
+    query = query.order_by(GlossaryTerm.created_at)
+    result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+async def add_glossary_terms(
+    session: AsyncSession,
+    terms: list[dict],
+    replace: bool = True,
+    source_lang: str = "ja",
+    target_lang: str = "vi",
+    domain: str = "general",
+) -> int:
+    """Add new glossary terms from a list of dicts.
+
+    Args:
+        session: Async database session.
+        terms: List of dicts with 'source_text'/'jp', 'target_text'/'vi',
+               and optional 'context'.
+        replace: If True, deletes all existing terms for this domain/language pair.
+        source_lang: Source language code.
+        target_lang: Target language code.
+        domain: Domain code.
+
+    Returns:
+        Number of terms added.
+    """
+    if replace:
+        await session.execute(
+            text("DELETE FROM glossary WHERE source_lang = :sl AND target_lang = :tl AND domain = :dom"),
+            {"sl": source_lang, "tl": target_lang, "dom": domain},
+        )
+
+    added = 0
+    for t in terms:
+        source_text = str(t.get("source_text") or t.get("jp", "")).strip()
+        target_text = str(t.get("target_text") or t.get("vi", "")).strip()
+        context = str(t.get("context", "")).strip()
+
+        if not source_text or not target_text:
+            continue
+        
+        # Check if exists if not replacing
+        if not replace:
+            existing = await session.execute(
+                select(GlossaryTerm).where(
+                    GlossaryTerm.source_text == source_text,
+                    GlossaryTerm.source_lang == source_lang,
+                    GlossaryTerm.target_lang == target_lang,
+                    GlossaryTerm.domain == domain,
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+        term = GlossaryTerm(
+            source_lang=source_lang,
+            target_lang=target_lang,
+            domain=domain,
+            source_text=source_text,
+            target_text=target_text,
+            context=context if context else None,
+        )
+        session.add(term)
+        added += 1
+
+    await session.commit()
+    return added
+
+
+async def delete_glossary_term(session: AsyncSession, term_id: int) -> bool:
+    """Delete a glossary term by ID.
+
+    Args:
+        session: Async database session.
+        term_id: ID of the term to delete.
+
+    Returns:
+        True if deleted, False if not found.
+    """
+    result = await session.execute(
+        select(GlossaryTerm).where(GlossaryTerm.id == term_id)
+    )
+    term = result.scalar_one_or_none()
+    if term:
+        await session.delete(term)
+        await session.commit()
+        return True
+    return False
 

@@ -1,1 +1,1 @@
-# JP→VI Translation Tool - Backend Application
+# Multilingual Translation Tool - Backend Application
