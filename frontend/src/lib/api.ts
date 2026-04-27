@@ -13,6 +13,16 @@ function getHeaders(isFormData: boolean = false): HeadersInit {
     return headers;
 }
 
+/** Wrapper around fetch that auto-handles 401 by logging out */
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+    const res = await fetch(url, init);
+    if (res.status === 401) {
+        localStorage.removeItem('access_token');
+        window.location.reload();
+    }
+    return res;
+}
+
 export async function login(username: string, password: string) {
     const fd = new FormData();
     fd.append('username', username);
@@ -40,7 +50,7 @@ export async function fetchDomains() {
 }
 
 export async function uploadDocument(formData: FormData) {
-    const res = await fetch(`${API_BASE}/api/upload`, { 
+    const res = await authFetch(`${API_BASE}/api/upload`, { 
         method: 'POST', 
         body: formData,
         headers: getHeaders(true)
@@ -51,7 +61,7 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function fetchGlossary(domain: string) {
-    const res = await fetch(`${API_BASE}/api/glossary?domain=${domain}`, {
+    const res = await authFetch(`${API_BASE}/api/glossary?domain=${domain}`, {
         headers: getHeaders()
     });
     if (!res.ok) throw new Error('Failed to load glossary');
@@ -59,7 +69,7 @@ export async function fetchGlossary(domain: string) {
 }
 
 export async function deleteGlossaryTerm(id: string) {
-    const res = await fetch(`${API_BASE}/api/glossary/${id}`, { 
+    const res = await authFetch(`${API_BASE}/api/glossary/${id}`, { 
         method: 'DELETE',
         headers: getHeaders()
     });
@@ -67,7 +77,7 @@ export async function deleteGlossaryTerm(id: string) {
 }
 
 export async function uploadGlossary(formData: FormData) {
-    const res = await fetch(`${API_BASE}/api/glossary/upload`, { 
+    const res = await authFetch(`${API_BASE}/api/glossary/upload`, { 
         method: 'POST', 
         body: formData,
         headers: getHeaders(true)
@@ -78,7 +88,7 @@ export async function uploadGlossary(formData: FormData) {
 }
 
 export async function fetchJobs() {
-    const res = await fetch(`${API_BASE}/api/jobs`, {
+    const res = await authFetch(`${API_BASE}/api/jobs`, {
         headers: getHeaders()
     });
     if (!res.ok) throw new Error('Failed to load jobs');
@@ -86,7 +96,7 @@ export async function fetchJobs() {
 }
 
 export async function downloadJob(jobId: string) {
-    const res = await fetch(`${API_BASE}/api/download/${jobId}`, {
+    const res = await authFetch(`${API_BASE}/api/download/${jobId}`, {
         headers: getHeaders()
     });
     if (!res.ok) {
@@ -117,7 +127,7 @@ export async function downloadJob(jobId: string) {
 }
 
 export async function downloadXliff(jobId: string) {
-    const res = await fetch(`${API_BASE}/api/download/${jobId}?xliff=true`, {
+    const res = await authFetch(`${API_BASE}/api/download/${jobId}?xliff=true`, {
         headers: getHeaders()
     });
     if (!res.ok) {
@@ -140,7 +150,7 @@ export async function downloadXliff(jobId: string) {
 export async function uploadXliff(jobId: string, file: File) {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch(`${API_BASE}/api/upload/${jobId}/xliff`, { 
+    const res = await authFetch(`${API_BASE}/api/upload/${jobId}/xliff`, { 
         method: 'POST', 
         body: fd,
         headers: getHeaders(true)
