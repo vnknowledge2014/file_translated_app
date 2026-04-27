@@ -98,8 +98,7 @@ cp .env.example .env
 ### 2. Pre-download Model (on internet-connected machine)
 
 ```bash
-chmod +x scripts/setup_models.sh
-./scripts/setup_models.sh
+python cli.py setup
 ```
 
 ### 3. Start Services
@@ -120,21 +119,21 @@ The UI supports language switching via the 🌐 globe icon (top-right). Availabl
 cd backend
 pip install -r requirements.txt
 
-# Standard translate (auto-detect source language)
-python scripts/translate_cli.py --file samples/japanese-ja.docx
+# Basic translation
+python cli.py translate --file samples/japanese-ja.docx
 
-# Specify languages explicitly
-python scripts/translate_cli.py --file doc.docx --source ja --target vi
+# Override languages
+python cli.py translate --file doc.docx --source ja --target vi
 
-# Export bilingual XLIFF alongside output
-python scripts/translate_cli.py --file doc.docx --export-xliff
-python scripts/translate_cli.py --file doc.docx --export-xliff --xliff-version 2.1
+# Generate bilingual XLIFF
+python cli.py translate --file doc.docx --export-xliff
+python cli.py translate --file doc.docx --export-xliff --xliff-version 2.1
 
-# Interactive CLI Review Editor
-python scripts/review_cli.py data/output/doc_vi.xlf
+# Review XLIFF in terminal
+python cli.py review data/output/doc_vi.xlf
 
-# Import reviewed XLIFF (skip LLM entirely)
-python scripts/translate_cli.py --file doc.docx --import-xliff data/output/doc_vi.xlf
+# Reconstruct from edited XLIFF (bypasses LLM)
+python cli.py translate --file doc.docx --import-xliff data/output/doc_vi.xlf
 ```
 
 ## Configuration
@@ -304,16 +303,12 @@ mvp_jp_vi/
 │   │   ├── domains.py            # Domain registry (7 domains)
 │   │   └── config.py             # Environment settings
 │   └── tests/                    # Unit + integration tests
-├── scripts/                  # CLI tools
-│   ├── translate_cli.py          # CLI translation entry point
-│   ├── review_cli.py             # Terminal-based review editor
-│   └── setup_models.sh           # Model setup script
-├── docs/
-│   └── architecture.md           # Architecture deep-dive
+├── cli.py                    # Unified CLI tool
+├── PROJECT_MAP.md            # Auto-generated project map
 ├── i18n_manager.py           # Excel → JSON i18n converter
 ├── ui_translations.xlsx      # Master UI translation file
 ├── Dockerfile                # Multi-stage build (Node + Python)
-└── docker-compose.yml
+└── docker-compose.yml        # Docker deployment config
 ```
 
 ## Performance Tuning

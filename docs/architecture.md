@@ -210,7 +210,7 @@ segments[] ──→ chunk_segments(max_chars, max_segs)
 ### In-App Review Editor
 
 - **Web Editor**: Split-pane grid highlighting LOW/MEDIUM segments with auto-save.
-- **CLI TUI**: `python scripts/review_cli.py` for terminal-based review.
+- **CLI TUI**: `python cli.py review` for terminal-based review.
 - **Direct Reconstruction**: Edit segments and trigger rebuild without XLIFF roundtrip.
 
 ---
