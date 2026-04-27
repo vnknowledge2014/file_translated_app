@@ -123,18 +123,19 @@ class Settings:
         self.OUTPUT_DIR: str = _resolve_path(_env("OUTPUT_DIR", "/data/output"))
         self.TEMP_DIR: str = _resolve_path(_env("TEMP_DIR", "/data/temp"))
 
-        # Special handling for SQLite URLs to make them absolute based on project root
-        db_url = _env("DATABASE_URL", "sqlite:///data/db/translations.db")
-        if db_url.startswith("sqlite:///data/") or db_url.startswith("sqlite:///./data/"):
-            rel_path = db_url.split("sqlite:///")[1]
-            rel_path = rel_path[2:] if rel_path.startswith("./") else rel_path
-            abs_db_path = _project_root / rel_path
-            self.DATABASE_URL = f"sqlite:///{abs_db_path}"
-        else:
-            self.DATABASE_URL = db_url
+        # ── Database ──
+        self.SURREALDB_URL: str = _env("SURREALDB_URL", "ws://127.0.0.1:8000/rpc")
+        self.SURREALDB_USER: str = _env("SURREALDB_USER", "root")
+        self.SURREALDB_PASS: str = _env("SURREALDB_PASS", "root")
+        self.SURREALDB_NS: str = _env("SURREALDB_NS", "translate")
+        self.SURREALDB_DB: str = _env("SURREALDB_DB", "mvp")
 
         # ── Workers ──
         self.MAX_WORKERS: int = _env_int("MAX_WORKERS", 1)
+
+        # ── Auth / JWT ──
+        self.SECRET_KEY: str = _env("SECRET_KEY", "super-secret-key-please-change-in-prod")
+        self.EMBEDDING_MODEL: str = _env("EMBEDDING_MODEL", "nomic-embed-text")
 
         # ── Supported File Types ──
         self.SUPPORTED_TYPES: set[str] = {

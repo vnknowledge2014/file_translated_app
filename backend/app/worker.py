@@ -173,12 +173,11 @@ class WorkerPool:
                 if phase in ("completed", "failed"):
                     return
                 try:
-                    async with app.state.db_session_factory() as session:
-                        await update_job_status(
-                            session, job.job_id, phase,
-                            progress=progress,
-                            progress_message=message,
-                        )
+                    await update_job_status(
+                        job.job_id, phase,
+                        progress=progress,
+                        progress_message=message,
+                    )
                 except Exception:
                     pass
 
@@ -194,21 +193,19 @@ class WorkerPool:
             )
 
             # Fetch glossary terms for the active language pair and domain
-            async with app.state.db_session_factory() as session:
-                glossary_models = await get_all_glossary_terms(
-                    session,
-                    source_lang=settings.SOURCE_LANG,
-                    target_lang=settings.TARGET_LANG,
-                    domain=job.domain,
-                )
-                glossary_dicts = [
-                    {
-                        "source_text": g.source_text,
-                        "target_text": g.target_text,
-                        "context": g.context,
-                    }
-                    for g in glossary_models
-                ]
+            glossary_models = await get_all_glossary_terms(
+                source_lang=settings.SOURCE_LANG,
+                target_lang=settings.TARGET_LANG,
+                domain=job.domain,
+            )
+            glossary_dicts = [
+                {
+                    "source_text": g.source_text,
+                    "target_text": g.target_text,
+                    "context": g.context,
+                }
+                for g in glossary_models
+            ]
 
             result = await orchestrator.translate_file(
                 file_path=job.file_path,
@@ -236,28 +233,26 @@ class WorkerPool:
                 if result["status"] == "completed"
                 else result.get("error", "Lỗi")
             )
-            async with app.state.db_session_factory() as session:
-                await update_job_status(
-                    session, job.job_id,
-                    status=result["status"],
-                    progress=final_progress,
-                    progress_message=final_msg,
-                    output_path=result.get("output_path"),
-                    xliff_path=result.get("xliff_path"),
-                    segments_count=result.get("segments_count"),
-                    duration_seconds=result.get("duration_seconds"),
-                    error_message=result.get("error"),
-                )
+            await update_job_status(
+                job.job_id,
+                status=result["status"],
+                progress=final_progress,
+                progress_message=final_msg,
+                output_path=result.get("output_path"),
+                xliff_path=result.get("xliff_path"),
+                segments_count=result.get("segments_count"),
+                duration_seconds=result.get("duration_seconds"),
+                error_message=result.get("error"),
+            )
 
             logger.info(f"[{job.job_id}] Pipeline finished: {result['status']}")
 
             # Save segments for Review Editor
             if result["status"] == "completed" and result.get("_segments"):
                 try:
-                    async with app.state.db_session_factory() as session:
-                        await save_segments(
-                            session, job.job_id, result["_segments"]
-                        )
+                    await save_segments(
+                        job.job_id, result["_segments"]
+                    )
                     logger.info(
                         f"[{job.job_id}] Saved {len(result['_segments'])} "
                         f"segments for review"
@@ -273,11 +268,10 @@ class WorkerPool:
                 f"[{job.job_id}] Pipeline crashed: {error_msg}", exc_info=True
             )
             try:
-                async with app.state.db_session_factory() as session:
-                    await update_job_status(
-                        session, job.job_id, "failed",
-                        error_message=error_msg[:500],
-                    )
+                await update_job_status(
+                    job.job_id, "failed",
+                    error_message=error_msg[:500],
+                )
             except Exception as db_err:
                 logger.critical(
                     f"[{job.job_id}] CRITICAL: DB update failed: {db_err}"

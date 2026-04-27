@@ -3,9 +3,11 @@
 import logging
 import os
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+from app.auth import get_current_user
 
 from app.config import settings
 from app.database import (
@@ -26,7 +28,7 @@ class SegmentEdit(BaseModel):
 
 
 @router.get("/jobs/{job_id}/segments")
-async def list_segments(request: Request, job_id: str, filter: str | None = None):
+async def list_segments(request: Request, job_id: str, filter: str | None = None, current_user: dict = Depends(get_current_user)):
     """Get segments for a job.
 
     Query params:
@@ -35,33 +37,35 @@ async def list_segments(request: Request, job_id: str, filter: str | None = None
     Returns:
         List of segment dicts with source, target, edited, confidence, status.
     """
-    async with request.app.state.db_session_factory() as session:
-        job = await get_job(session, job_id)
-        if not job:
-            return {"error": "Job not found"}
+    job = await get_job(job_id)
+    if not job:
+        return {"error": "Job not found"}
+        
+    if job.owner_id and job.owner_id != current_user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized to view this job")
 
-        segments = await get_segments(session, job_id, filter_status=filter)
-        return {
-            "job_id": job_id,
-            "filename": job.filename,
-            "total": job.segments_count or len(segments),
-            "segments": [
-                {
-                    "index": s.index,
-                    "source": s.source,
-                    "target": s.target,
-                    "edited": s.edited,
-                    "confidence": s.confidence,
-                    "status": s.status,
-                    "location": s.location,
-                }
-                for s in segments
-            ],
-        }
+    segments = await get_segments(job_id, filter_status=filter)
+    return {
+        "job_id": job_id,
+        "filename": job.filename,
+        "total": job.segments_count or len(segments),
+        "segments": [
+            {
+                "index": s.index,
+                "source": s.source,
+                "target": s.target,
+                "edited": s.edited,
+                "confidence": s.confidence,
+                "status": s.status,
+                "location": s.location,
+            }
+            for s in segments
+        ],
+    }
 
 
 @router.put("/jobs/{job_id}/segments/{index}")
-async def edit_segment(request: Request, job_id: str, index: int, body: SegmentEdit):
+async def edit_segment(request: Request, job_id: str, index: int, body: SegmentEdit, current_user: dict = Depends(get_current_user)):
     """Update a single segment's translated text.
 
     Args:
@@ -71,34 +75,40 @@ async def edit_segment(request: Request, job_id: str, index: int, body: SegmentE
     Returns:
         Updated segment data.
     """
-    async with request.app.state.db_session_factory() as session:
-        seg = await update_segment(session, job_id, index, body.edited)
-        if not seg:
-            return {"error": "Segment not found"}
-        return {
-            "index": seg.index,
-            "source": seg.source,
-            "target": seg.target,
-            "edited": seg.edited,
-            "confidence": seg.confidence,
-            "status": seg.status,
-        }
+    job = await get_job(job_id)
+    if not job or (job.owner_id and job.owner_id != current_user.get("id")):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    seg = await update_segment(job_id, index, body.edited)
+    if not seg:
+        return {"error": "Segment not found"}
+    return {
+        "index": seg.index,
+        "source": seg.source,
+        "target": seg.target,
+        "edited": seg.edited,
+        "confidence": seg.confidence,
+        "status": seg.status,
+    }
 
 
 @router.post("/jobs/{job_id}/segments/approve-all")
-async def approve_all(request: Request, job_id: str):
+async def approve_all(request: Request, job_id: str, current_user: dict = Depends(get_current_user)):
     """Approve all HIGH-confidence segments in bulk.
 
     Returns:
         Count of approved segments.
     """
-    async with request.app.state.db_session_factory() as session:
-        count = await approve_high_segments(session, job_id)
-        return {"approved": count}
+    job = await get_job(job_id)
+    if not job or (job.owner_id and job.owner_id != current_user.get("id")):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    count = await approve_high_segments(job_id)
+    return {"approved": count}
 
 
 @router.post("/jobs/{job_id}/segments/reconstruct")
-async def reconstruct_from_editor(request: Request, job_id: str):
+async def reconstruct_from_editor(request: Request, job_id: str, current_user: dict = Depends(get_current_user)):
     """Reconstruct output file using reviewed segments.
 
     Uses edited text where available, falls back to LLM target.
@@ -107,14 +117,16 @@ async def reconstruct_from_editor(request: Request, job_id: str):
     from app.agent.extractor import extract_document
     from app.agent.reconstructor import reconstruct_document, reconstruct_plaintext
 
-    async with request.app.state.db_session_factory() as session:
-        job = await get_job(session, job_id)
-        if not job:
-            return {"error": "Job not found"}
+    job = await get_job(job_id)
+    if not job:
+        return {"error": "Job not found"}
+        
+    if job.owner_id and job.owner_id != current_user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized to reconstruct this job")
 
-        segments = await get_segments(session, job_id)
-        if not segments:
-            return {"error": "No segments found for this job"}
+    segments = await get_segments(job_id)
+    if not segments:
+        return {"error": "No segments found for this job"}
 
     # Re-extract original segments to get full metadata (location, type, etc.)
     original_segments = extract_document(job.file_type, job.file_path)

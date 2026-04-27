@@ -2,9 +2,10 @@
 
 import logging
 import os
+import uuid
 
-from fastapi import APIRouter, File, Request, UploadFile, Form
-
+from fastapi import APIRouter, File, Request, UploadFile, Form, Depends
+from app.auth import get_current_user
 from app.config import settings
 from app.database import create_job
 from app.utils.file_detect import detect_file_type
@@ -23,6 +24,7 @@ async def upload_file(
     domain: str = Form(None),
     source_lang: str = Form(None),
     target_lang: str = Form(None),
+    current_user: dict = Depends(get_current_user),
 ):
     """Upload a document for translation.
 
@@ -34,12 +36,15 @@ async def upload_file(
          "queue_position": int}
     """
     # Validate file type
-    file_type = detect_file_type(file.filename or "")
+    safe_filename = (file.filename or "unknown").replace("/", "").replace("\\", "")
+    file_type = detect_file_type(safe_filename)
     if not file_type:
-        return {"error": f"Unsupported file type: {file.filename}"}
+        return {"error": f"Unsupported file type: {safe_filename}"}
 
-    # Save to upload directory
-    upload_path = os.path.join(settings.UPLOAD_DIR, file.filename or "unknown")
+    # Save to upload directory with unique prefix to prevent overwrite
+    unique_prefix = uuid.uuid4().hex[:8]
+    upload_filename = f"{unique_prefix}_{safe_filename}"
+    upload_path = os.path.join(settings.UPLOAD_DIR, upload_filename)
     os.makedirs(os.path.dirname(upload_path), exist_ok=True)
 
     with open(upload_path, "wb") as f:
@@ -47,17 +52,16 @@ async def upload_file(
         f.write(content)
 
     # Create job record
-    async with request.app.state.db_session_factory() as session:
-        job = await create_job(
-            session,
-            filename=file.filename or "unknown",
-            file_type=file_type,
-            file_path=upload_path,
-            domain=domain or settings.DEFAULT_DOMAIN,
-            source_lang=source_lang or settings.SOURCE_LANG,
-            target_lang=target_lang or settings.TARGET_LANG,
-        )
-        job_id = job.id
+    job = await create_job(
+        filename=safe_filename,
+        file_type=file_type,
+        file_path=upload_path,
+        domain=domain or settings.DEFAULT_DOMAIN,
+        source_lang=source_lang or settings.SOURCE_LANG,
+        target_lang=target_lang or settings.TARGET_LANG,
+        owner_id=current_user.get("id"),
+    )
+    job_id = job.id
 
     # Submit to worker pool (bounded by MAX_WORKERS)
     pool = request.app.state.worker_pool
@@ -66,7 +70,7 @@ async def upload_file(
         job_id=job_id,
         file_path=upload_path,
         file_type=file_type,
-        filename=file.filename or "unknown",
+        filename=safe_filename,
         export_xliff=export_xliff,
         xliff_version=xliff_version,
         domain=domain or settings.DEFAULT_DOMAIN,
@@ -76,7 +80,7 @@ async def upload_file(
 
     return {
         "job_id": job_id,
-        "filename": file.filename,
+        "filename": safe_filename,
         "file_type": file_type,
         "status": "queued",
         "queue_depth": pool.queue_size,

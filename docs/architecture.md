@@ -16,18 +16,18 @@
 │  │  Paraglide   │  │ Orchestrator │  │ gemma4:e4b     │  │
 │  │  i18n        │  │ Pipeline     │  │ (or custom)    │  │
 │  └──────────────┘  │              │  └────────────────┘  │
-│                    │ ┌─ SQLite ─┐ │                       │
-│                    │ │ jobs     │ │                       │
-│                    │ │ glossary │ │                       │
-│                    │ │ cache    │ │  translations.db      │
-│                    │ └──────────┘ │                       │
-│                    └──────────────┘                       │
-│                                                          │
-│  Volume: /data/                                          │
-│  ├── uploads/    (original files)                        │
-│  ├── output/     (translated files + .xlf bilingual)     │
-│  ├── temp/       (temporary files)                       │
-│  └── db/         (translations.db)                       │
+│                    │ ┌─ SurrealDB ┐ │                      │
+│                    │ │ jobs       │ │                      │
+│                    │ │ glossary   │ │  ws://surrealdb      │
+│                    │ │ cache      │ │                      │
+│                    │ └────────────┘ │                      │
+│                    └────────────────┘                      │
+│                                                            │
+│  Volume: /data/                                            │
+│  ├── uploads/    (original files)                          │
+│  ├── output/     (translated files + .xlf bilingual)       │
+│  ├── temp/       (temporary files)                         │
+│  └── db/         (surrealdb persistent data)               │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -163,7 +163,7 @@ segments[] ──→ chunk_segments(max_chars, max_segs)
                translate_batch() × N concurrent
                     │
                     ▼
-              cache lookup (translations.db)
+              cache lookup (SurrealDB cache)
               ├─ hit  → return cached translation
               └─ miss → build prompt + call Ollama
                     │

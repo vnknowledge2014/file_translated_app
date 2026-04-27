@@ -104,6 +104,35 @@ class OllamaClient(LLMClient):
         except httpx.HTTPStatusError as e:
             raise OllamaError(f"HTTP error: {e}") from e
 
+    async def generate_embedding(self, model: str, prompt: str) -> list[float]:
+        """Generate vector embedding for text.
+        
+        Args:
+            model: Embedding model name.
+            prompt: Text to embed.
+            
+        Returns:
+            List of floats.
+        """
+        payload = {
+            "model": model,
+            "prompt": prompt,
+        }
+        try:
+            client = await self._get_client()
+            response = await client.post("/api/embeddings", json=payload)
+            if response.status_code == 404:
+                raise OllamaModelError(f"Model '{model}' not found")
+            response.raise_for_status()
+            data = response.json()
+            return data.get("embedding", [])
+        except httpx.ConnectError as e:
+            raise OllamaConnectionError(f"Cannot connect to Ollama at {self.base_url}: {e}") from e
+        except httpx.TimeoutException as e:
+            raise OllamaTimeoutError(f"Request timed out after {self.timeout}s: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise OllamaError(f"HTTP error: {e}") from e
+
     async def list_models(self) -> list[dict]:
         """List available models.
 

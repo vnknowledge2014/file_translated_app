@@ -36,8 +36,19 @@ class LLMClient(ABC):
             temperature: Sampling temperature.
             num_ctx: Context window size.
 
+        """
+        ...
+
+    @abstractmethod
+    async def generate_embedding(self, model: str, prompt: str) -> list[float]:
+        """Generate vector embedding for text.
+        
+        Args:
+            model: Embedding model name.
+            prompt: Text to embed.
+            
         Returns:
-            Generated text response.
+            List of floats.
         """
         ...
 

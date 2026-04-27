@@ -16,13 +16,8 @@ from app.worker import WorkerPool
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — init DB + Ollama client."""
-    # Startup
-    db_url = settings.DATABASE_URL
-    if db_url.startswith("sqlite:///"):
-        db_url = "sqlite+aiosqlite:///" + db_url[len("sqlite:///"):]
-    engine, session_factory = await init_db(db_url)
-    app.state.db_engine = engine
-    app.state.db_session_factory = session_factory
+    # Startup SurrealDB
+    await init_db()
     # Select LLM backend
     app.state.llm_client = create_llm_client(
         url=settings.OLLAMA_URL,
@@ -47,7 +42,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     await app.state.llm_client.close()
-    await engine.dispose()
+    from app.database import close_db
+    await close_db()
 
 
 app = FastAPI(
@@ -67,6 +63,7 @@ app.add_middleware(
 
 
 # ── Import and register routes ──
+from app.routes.auth import router as auth_router  # noqa: E402
 from app.routes.upload import router as upload_router  # noqa: E402
 from app.routes.jobs import router as jobs_router  # noqa: E402
 from app.routes.download import router as download_router  # noqa: E402
@@ -74,6 +71,7 @@ from app.routes.xliff import router as xliff_router  # noqa: E402
 from app.routes.segments import router as segments_router  # noqa: E402
 from app.routes.glossary import router as glossary_router  # noqa: E402
 
+app.include_router(auth_router, tags=["Auth"])
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(jobs_router, prefix="/api", tags=["Jobs"])
 app.include_router(download_router, prefix="/api", tags=["Download"])

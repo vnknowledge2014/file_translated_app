@@ -12,7 +12,7 @@ import logging
 import os
 import re
 
-import aiosqlite
+from app.database import db
 
 from app.config import settings
 from app.languages import get_language
@@ -128,44 +128,85 @@ class Translator:
         self.router = PromptRouter()
         # Concurrency limiter to prevent overloading Ollama
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        
-        # Ensure db dir exists and use absolute path
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "data", "db")
-        os.makedirs(db_path, exist_ok=True)
-        self.cache_db = os.path.join(db_path, "translations.db")
 
     async def _init_cache(self):
-        """Initialize sqlite cache table."""
-        async with aiosqlite.connect(self.cache_db) as db:
-            await db.execute(
-                "CREATE TABLE IF NOT EXISTS translation_cache_v2 ("
-                "source TEXT, "
-                "source_lang TEXT, "
-                "target_lang TEXT, "
-                "model TEXT, "
-                "domain TEXT, "
-                "target TEXT, "
-                "PRIMARY KEY (source, source_lang, target_lang, model, domain)"
-                ")"
-            )
-            await db.commit()
+        """No initialization needed for SurrealDB here."""
+        pass
 
-    async def _get_cached_translation(self, source: str, source_lang: str, target_lang: str, domain: str) -> str | None:
-        async with aiosqlite.connect(self.cache_db) as db:
-            async with db.execute(
-                "SELECT target FROM translation_cache_v2 WHERE source = ? AND source_lang = ? AND target_lang = ? AND model = ? AND domain = ?", 
-                (source, source_lang, target_lang, self.model, domain)
-            ) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else None
+    async def _get_cached_translation(self, source: str, source_lang: str, target_lang: str, domain: str) -> tuple[str | None, list[dict]]:
+        # 1. Exact match check
+        result = await db.query(
+            "SELECT target FROM translation_cache WHERE source = $source AND source_lang = $source_lang AND target_lang = $target_lang AND model = $model AND domain = $domain LIMIT 1",
+            {
+                "source": source,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "model": self.model,
+                "domain": domain
+            }
+        )
+        records = result[0].get("result", [])
+        if records:
+            return records[0]["target"], []
+            
+        # 2. Fuzzy match (Vector Search)
+        # Generate embedding for the source text
+        try:
+            query_embedding = await self.client.generate_embedding(
+                model=settings.EMBEDDING_MODEL,
+                prompt=source
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding: {e}")
+            return None, []
+            
+        fuzzy_result = await db.query(
+            "SELECT source, target, vector::similarity::cosine(embedding, $query_embedding) AS sim FROM translation_cache WHERE source_lang = $source_lang AND target_lang = $target_lang AND domain = $domain AND sim > 0.8 ORDER BY sim DESC LIMIT 3",
+            {
+                "query_embedding": query_embedding,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "domain": domain
+            }
+        )
+        fuzzy_matches = fuzzy_result[0].get("result", [])
+        return None, fuzzy_matches
 
     async def _set_cached_translation(self, source: str, target: str, source_lang: str, target_lang: str, domain: str):
-        async with aiosqlite.connect(self.cache_db) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO translation_cache_v2 (source, source_lang, target_lang, model, domain, target) VALUES (?, ?, ?, ?, ?, ?)",
-                (source, source_lang, target_lang, self.model, domain, target),
+        try:
+            embedding = await self.client.generate_embedding(
+                model=settings.EMBEDDING_MODEL,
+                prompt=source
             )
-            await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for cache storage: {e}")
+            embedding = []
+            
+        if embedding:
+            await db.query(
+                "UPSERT translation_cache WHERE source = $source AND source_lang = $source_lang AND target_lang = $target_lang AND model = $model AND domain = $domain SET source = $source, target = $target, source_lang = $source_lang, target_lang = $target_lang, model = $model, domain = $domain, embedding = $embedding",
+                {
+                    "source": source,
+                    "target": target,
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
+                    "model": self.model,
+                    "domain": domain,
+                    "embedding": embedding
+                }
+            )
+        else:
+            await db.query(
+                "UPSERT translation_cache WHERE source = $source AND source_lang = $source_lang AND target_lang = $target_lang AND model = $model AND domain = $domain SET source = $source, target = $target, source_lang = $source_lang, target_lang = $target_lang, model = $model, domain = $domain",
+                {
+                    "source": source,
+                    "target": target,
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
+                    "model": self.model,
+                    "domain": domain
+                }
+            )
 
     def _validate_tags(self, original: str, translated: str) -> bool:
         """Validate that all <tagX> or </tagX> in original exist exactly in translated."""
@@ -232,15 +273,30 @@ class Translator:
         # Determine segments that actually need translation (checking cache)
         # We pre-fill cached translated texts and gather uncached texts
         to_translate = []
+        all_fuzzy_matches = []
         for seg in segments:
-            cache_hit = await self._get_cached_translation(seg["text"], source_lang, target_lang, domain_code)
+            cache_hit, fuzzy_matches = await self._get_cached_translation(seg["text"], source_lang, target_lang, domain_code)
             if cache_hit:
                 seg["translated_text"] = cache_hit
             else:
                 to_translate.append(seg)
+                all_fuzzy_matches.extend(fuzzy_matches)
 
         if not to_translate:
             return segments
+
+        # Inject Fuzzy Matches into System Prompt
+        if all_fuzzy_matches:
+            # Deduplicate matches
+            seen = set()
+            unique_matches = []
+            for m in all_fuzzy_matches:
+                if m["source"] not in seen:
+                    seen.add(m["source"])
+                    unique_matches.append(m)
+            
+            tm_context = "\n".join([f"- Original: {m['source']}\n  Translation: {m['target']}" for m in unique_matches[:5]])
+            system += f"\n\n## TRANSLATION MEMORY (FUZZY MATCHES)\nThe following previous translations are similar to your current text. Use them as stylistic and terminological references:\n{tm_context}"
 
 
 

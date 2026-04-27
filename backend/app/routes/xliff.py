@@ -4,8 +4,12 @@ import logging
 import os
 import tempfile
 
-from fastapi import APIRouter, File, Form, UploadFile
+import uuid
+
+from fastapi import APIRouter, File, Form, UploadFile, Depends, HTTPException
 from fastapi.responses import FileResponse
+
+from app.auth import get_current_user
 
 from app.agent.extractor import extract_document
 from app.agent.reconstructor import reconstruct_document, reconstruct_plaintext
@@ -21,6 +25,7 @@ logger = logging.getLogger(__name__)
 async def import_xliff_route(
     xliff_file: UploadFile = File(..., description="Reviewed XLIFF (.xlf) file"),
     original_file: UploadFile = File(..., description="Original source document"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Import reviewed XLIFF and reconstruct translated document.
 
@@ -35,19 +40,23 @@ async def import_xliff_route(
         Translated file as download.
     """
     original_filename = original_file.filename or "unknown"
-    file_type = detect_file_type(original_filename)
+    safe_filename = original_filename.replace("/", "").replace("\\", "")
+    file_type = detect_file_type(safe_filename)
     if not file_type:
-        return {"error": f"Unsupported file type: {original_filename}"}
+        return {"error": f"Unsupported file type: {safe_filename}"}
 
-    # Save files
+    # Save files with UUID prefix to prevent cross-user overwrite
     upload_dir = settings.UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
+    
+    unique_prefix = uuid.uuid4().hex[:8]
 
-    original_path = os.path.join(upload_dir, original_filename)
+    original_path = os.path.join(upload_dir, f"{unique_prefix}_{safe_filename}")
     with open(original_path, "wb") as f:
         f.write(await original_file.read())
 
-    xliff_path = os.path.join(upload_dir, xliff_file.filename or "import.xlf")
+    safe_xliff = (xliff_file.filename or "import.xlf").replace("/", "").replace("\\", "")
+    xliff_path = os.path.join(upload_dir, f"{unique_prefix}_{safe_xliff}")
     with open(xliff_path, "wb") as f:
         f.write(await xliff_file.read())
 
@@ -57,8 +66,8 @@ async def import_xliff_route(
         xliff_segs = import_xliff(xliff_path)
         segments = merge_xliff_into_segments(segments, xliff_segs)
 
-        base, ext = os.path.splitext(original_filename)
-        output_filename = f"{base}_vi{ext}"
+        base, ext = os.path.splitext(safe_filename)
+        output_filename = f"{unique_prefix}_{base}_vi{ext}"
         output_path = os.path.join(settings.OUTPUT_DIR, output_filename)
         os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 

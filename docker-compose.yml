@@ -1,4 +1,14 @@
 services:
+  # ── SurrealDB Database ──
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./data/db:/data
+    command: start --user root --pass root file:/data/surreal.db
+    restart: unless-stopped
+
   # ── Translation App ──
   app:
     build:
@@ -11,7 +21,11 @@ services:
     environment:
       # Docker-specific overrides (these take priority over .env)
       - OLLAMA_URL=http://host.docker.internal:11434
-      - DATABASE_URL=sqlite:///data/db/translations.db
+      - SURREALDB_URL=ws://surrealdb:8000/rpc
+      - SURREALDB_USER=root
+      - SURREALDB_PASS=root
+      - SURREALDB_NS=translate
+      - SURREALDB_DB=mvp
       - UPLOAD_DIR=/data/uploads
       - OUTPUT_DIR=/data/output
       - TEMP_DIR=/data/temp
@@ -23,4 +37,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    depends_on:
+      - surrealdb
 

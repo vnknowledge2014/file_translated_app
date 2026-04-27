@@ -1,102 +1,80 @@
-"""SQLAlchemy ORM models for the multilingual translation tool."""
+"""Pydantic schemas representing SurrealDB records."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Float,
-    Integer,
-    String,
-    Text,
-    ForeignKey,
-)
-from sqlalchemy.orm import DeclarativeBase, relationship
+from pydantic import BaseModel, Field
 
 
-class Base(DeclarativeBase):
-    """SQLAlchemy declarative base."""
-    pass
+class JobAttempt(BaseModel):
+    id: Optional[str] = None
+    job_id: str
+    attempt_number: int
+    phase: str
+    code_generated: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    success: bool
+    error_message: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class Job(Base):
-    """Translation job tracking."""
-    __tablename__ = "jobs"
-
-    id = Column(String, primary_key=True)
-    filename = Column(String, nullable=False)
-    file_type = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)
-    output_path = Column(String, nullable=True)
-    xliff_path = Column(String, nullable=True)
-    status = Column(String, nullable=False, default="pending")
-    progress = Column(Float, nullable=False, default=0.0)
-    progress_message = Column(String, nullable=True)
-    error_message = Column(Text, nullable=True)
-    segments_count = Column(Integer, nullable=True)
-    duration_seconds = Column(Float, nullable=True)
-    source_lang = Column(String, nullable=False, default="ja")
-    target_lang = Column(String, nullable=False, default="vi")
-    domain = Column(String, nullable=False, default="general")
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
-
-    attempts = relationship("JobAttempt", back_populates="job", cascade="all, delete-orphan")
-    segments = relationship("SegmentReview", back_populates="job", cascade="all, delete-orphan")
+class User(BaseModel):
+    id: Optional[str] = None
+    username: str
+    hashed_password: str
+    role: str = "user"  # admin | user
+    organization_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    is_active: bool = True
 
 
-class SegmentReview(Base):
-    """Per-segment translation data for Review Editor."""
-    __tablename__ = "segment_reviews"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
-    index = Column(Integer, nullable=False)
-    source = Column(Text, nullable=False)
-    target = Column(Text, nullable=True)
-    edited = Column(Text, nullable=True)
-    confidence = Column(Float, default=0.0)
-    status = Column(String, default="pending")  # pending | approved | edited
-    location = Column(String, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-
-    job = relationship("Job", back_populates="segments")
+class SegmentReview(BaseModel):
+    id: Optional[str] = None
+    job_id: str
+    index: int
+    source: str
+    target: Optional[str] = None
+    edited: Optional[str] = None
+    confidence: float = 0.0
+    status: str = "pending"  # pending | approved | edited
+    location: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class JobAttempt(Base):
-    """Debug trail for retry analysis."""
-    __tablename__ = "job_attempts"
+class Job(BaseModel):
+    id: Optional[str] = None
+    owner_id: Optional[str] = None
+    filename: str
+    file_type: str
+    file_path: str
+    output_path: Optional[str] = None
+    xliff_path: Optional[str] = None
+    status: str = "pending"
+    progress: float = 0.0
+    progress_message: Optional[str] = None
+    error_message: Optional[str] = None
+    segments_count: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    source_lang: str = "ja"
+    target_lang: str = "vi"
+    domain: str = "general"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
-    attempt_number = Column(Integer, nullable=False)
-    phase = Column(String, nullable=False)
-    code_generated = Column(Text, nullable=True)
-    stdout = Column(Text, nullable=True)
-    stderr = Column(Text, nullable=True)
-    success = Column(Boolean, nullable=False)
-    error_message = Column(Text, nullable=True)
-    duration_seconds = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
-    job = relationship("Job", back_populates="attempts")
+class GlossaryTerm(BaseModel):
+    id: Optional[str] = None
+    owner_id: Optional[str] = None
+    source_lang: str = "ja"
+    target_lang: str = "vi"
+    domain: str = "general"
+    source_text: str
+    target_text: str
+    context: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-
-class GlossaryTerm(Base):
-    """User-defined translation glossary."""
-    __tablename__ = "glossary"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    source_lang = Column(String, nullable=False, default="ja")
-    target_lang = Column(String, nullable=False, default="vi")
-    domain = Column(String, nullable=False, default="general")
-    source_text = Column(String, nullable=False)
-    target_text = Column(String, nullable=False)
-    context = Column(String, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
-
-    # Backward-compatible aliases
     @property
     def jp(self) -> str:
         return self.source_text
