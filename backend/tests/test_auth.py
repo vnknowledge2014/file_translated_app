@@ -1,19 +1,11 @@
-"""Tests for authentication flow: register, login, token validation.
+"""Unit Tests — Auth Module.
 
-These tests are designed to run WITHOUT SurrealDB or Ollama — they mock all
-external I/O and focus on the auth module's own logic.
+Tests password hashing, JWT lifecycle, and get_current_user logic.
+All tests run WITHOUT SurrealDB (mocked via conftest.py).
 """
 
-import sys
-from unittest.mock import MagicMock
-
-# ── Pre-import mocking ──
-# The `surrealdb` package may not be installed locally. We mock it
-# before any app module tries to import it.
-sys.modules.setdefault("surrealdb", MagicMock())
-
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone, datetime
 from unittest.mock import AsyncMock, patch
 
 from app.auth import (
@@ -27,128 +19,112 @@ from app.auth import (
 import jwt
 
 
-# ── Password Hashing Tests ──
-
 class TestPasswordHashing:
-    def test_hash_and_verify_correct(self):
-        password = "test_pass_123"
-        hashed = get_password_hash(password)
-        assert hashed != password
-        assert verify_password(password, hashed) is True
+    """Unit: bcrypt password hash/verify."""
 
-    def test_verify_wrong_password(self):
+    def test_correct_password_verifies(self):
+        hashed = get_password_hash("mypassword")
+        assert verify_password("mypassword", hashed) is True
+
+    def test_wrong_password_rejected(self):
         hashed = get_password_hash("correct")
         assert verify_password("wrong", hashed) is False
 
-    def test_hash_is_unique_per_salt(self):
-        """Each hash should be unique due to bcrypt salt."""
+    def test_unique_salt_per_hash(self):
         h1 = get_password_hash("same")
         h2 = get_password_hash("same")
         assert h1 != h2
-        assert verify_password("same", h1) is True
-        assert verify_password("same", h2) is True
+        assert verify_password("same", h1)
+        assert verify_password("same", h2)
+
+    def test_empty_password(self):
+        hashed = get_password_hash("")
+        assert verify_password("", hashed) is True
+        assert verify_password("notempty", hashed) is False
 
 
-# ── JWT Token Tests ──
+class TestJWTLifecycle:
+    """Unit: JWT token creation, decode, expiry."""
 
-class TestJWTTokens:
-    def test_create_token_contains_subject(self):
-        token = create_access_token(data={"sub": "testuser"})
+    def test_token_contains_subject(self):
+        token = create_access_token(data={"sub": "alice"})
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        assert payload["sub"] == "testuser"
+        assert payload["sub"] == "alice"
 
-    def test_create_token_with_custom_expiry(self):
-        expires = timedelta(minutes=30)
-        token = create_access_token(data={"sub": "testuser"}, expires_delta=expires)
+    def test_token_has_expiry(self):
+        token = create_access_token(data={"sub": "alice"})
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         assert "exp" in payload
 
-    def test_create_token_default_expiry(self):
-        token = create_access_token(data={"sub": "testuser"})
+    def test_custom_expiry(self):
+        token = create_access_token(data={"sub": "alice"}, expires_delta=timedelta(minutes=5))
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         assert "exp" in payload
 
-    def test_expired_token_raises(self):
-        """An expired token should be rejected by jwt.decode."""
-        expires = timedelta(seconds=-10)
-        token = create_access_token(data={"sub": "testuser"}, expires_delta=expires)
+    def test_expired_token_rejected(self):
+        token = create_access_token(data={"sub": "alice"}, expires_delta=timedelta(seconds=-10))
         with pytest.raises(jwt.ExpiredSignatureError):
             jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
-    def test_invalid_token_string(self):
+    def test_garbage_token_rejected(self):
         with pytest.raises(jwt.DecodeError):
-            jwt.decode("not.a.real.token", SECRET_KEY, algorithms=[ALGORITHM])
+            jwt.decode("not.valid.token", SECRET_KEY, algorithms=[ALGORITHM])
 
-    def test_wrong_secret_key(self):
-        """Token signed with different key should be rejected."""
-        other_key = "a-totally-different-secret-key-1234567890"
+    def test_wrong_key_rejected(self):
+        other_key = "another-secret-key-1234567890abcdef"
         token = jwt.encode(
-            {"sub": "testuser", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
-            other_key,
-            algorithm=ALGORITHM,
+            {"sub": "alice", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+            other_key, algorithm=ALGORITHM
         )
         with pytest.raises(jwt.InvalidSignatureError):
             jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
+    def test_token_without_sub(self):
+        token = create_access_token(data={"role": "admin"})
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        assert payload.get("sub") is None
 
-# ── get_current_user Tests ──
-# The `db` object is lazy-imported inside `get_current_user`, so we need
-# to mock it at the database module level.
 
 class TestGetCurrentUser:
-    @pytest.mark.asyncio
-    async def test_valid_token_returns_user(self):
-        token = create_access_token(data={"sub": "admin"})
-        mock_user = {"id": "user:abc123", "username": "admin", "role": "user"}
-
-        import app.database as db_module
-        with patch.object(db_module, "db") as mock_db:
-            mock_db.query = AsyncMock(return_value=[{"result": [mock_user]}])
-            user = await get_current_user(token=token)
-            assert user["username"] == "admin"
-            assert user["id"] == "user:abc123"
+    """Unit: FastAPI dependency get_current_user()."""
 
     @pytest.mark.asyncio
-    async def test_missing_sub_claim_raises_401(self):
-        """Token without 'sub' claim → 401."""
-        token = create_access_token(data={"role": "admin"})  # No 'sub'
+    async def test_valid_token_returns_user(self, user_a, token_a):
+        import app.database as db_mod
+        with patch.object(db_mod, "db") as mock_db:
+            mock_db.query = AsyncMock(return_value=[{"result": [user_a]}])
+            result = await get_current_user(token=token_a)
+            assert result["username"] == "alice"
+            assert result["id"] == "user:userA_001"
 
+    @pytest.mark.asyncio
+    async def test_missing_sub_raises_401(self):
+        token = create_access_token(data={"role": "admin"})
         from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
-        assert exc_info.value.status_code == 401
+        assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_user_not_found_raises_401(self):
-        """Valid token for a user that doesn't exist in DB → 401."""
-        token = create_access_token(data={"sub": "ghost_user"})
-
-        import app.database as db_module
-        with patch.object(db_module, "db") as mock_db:
+    async def test_user_not_in_db_raises_401(self, token_a):
+        import app.database as db_mod
+        with patch.object(db_mod, "db") as mock_db:
             mock_db.query = AsyncMock(return_value=[{"result": []}])
-
             from fastapi import HTTPException
-            with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(token=token)
-            assert exc_info.value.status_code == 401
+            with pytest.raises(HTTPException) as exc:
+                await get_current_user(token=token_a)
+            assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_expired_token_raises_401(self):
-        """Expired token → 401."""
-        token = create_access_token(
-            data={"sub": "testuser"},
-            expires_delta=timedelta(seconds=-10),
-        )
-
+    async def test_expired_token_raises_401(self, expired_token):
         from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(token=token)
-        assert exc_info.value.status_code == 401
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=expired_token)
+        assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_garbage_token_raises_401(self):
-        """Random garbage string as token → 401."""
         from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(token="this.is.garbage.token")
-        assert exc_info.value.status_code == 401
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token="garbage.token.here")
+        assert exc.value.status_code == 401
