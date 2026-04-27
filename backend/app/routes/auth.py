@@ -51,7 +51,7 @@ async def register_user(user_in: UserCreate) -> Any:
         role="user"
     )
     
-    created = await db.create("user", user_obj.model_dump(exclude={"id"}))
+    created = await db.create("user", user_obj.model_dump(exclude={"id"}, mode="json"))
     if not created:
         raise HTTPException(status_code=500, detail="Failed to create user")
         
