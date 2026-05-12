@@ -10,23 +10,23 @@
 </p>
 
 <p align="center">
-  Air-gapped · Local LLM · 15 Languages · 7 Domains · Format-Preserving
+  Multi-Model LLM Routing · Solana Web3 Auth · 15+ Languages · Format-Preserving
 </p>
 
 ---
 
 ## Overview
 
-InfiTrans is a self-hosted, enterprise-grade document translation platform that runs entirely on your infrastructure. Powered by a local LLM via Ollama, it translates documents while preserving 100% of the original formatting — fonts, styles, tables, charts, macros — with zero data leaving your network.
+InfiTrans is an enterprise-grade document translation platform designed for security, accuracy, and scale. Initially built for air-gapped local LLMs, InfiTrans now features a **Multi-Model Routing Engine** capable of dispatching translation workloads to OpenRouter, OpenAI, Anthropic, Gemini, or local Ollama instances based on language pair and domain.
 
 ### Key Highlights
 
-- **Air-Gapped Security** — No internet required. LLM inference runs locally via Ollama.
-- **15 Languages** — Auto-detect source + translate to any of 15 supported languages.
-- **7 File Formats** — DOCX, XLSX, PPTX, PDF, CSV, TXT, MD with format-preserving reconstruction.
-- **7 Domain Profiles** — General, IT, Legal, Medical, Finance, Marketing, IT Software.
+- **Multi-Model LLM Routing** — Dynamically route tasks (e.g., `ja->vi` to Claude 3.5, and `en->zh` to GPT-4o) via OpenAI-compatible endpoints.
+- **Enterprise Billing & Web3 Auth** — Integrated Solana Pay for seamless, decentralized enterprise billing and wallet-based authentication.
+- **Air-Gapped Ready** — Fully supports 100% local inference via Ollama for zero-trust environments.
+- **15+ Languages & 7 Domains** — Auto-detect source + translate to 15+ languages across Legal, IT, Medical, Finance, and more.
+- **Format-Preserving** — Translates DOCX, XLSX, PPTX, PDF, CSV, TXT, MD while preserving 100% of the original formatting.
 - **XLIFF Exchange** — Dual-version (1.2 + 2.1) export/import for CAT tool workflows.
-- **Glossary Enforcement** — Custom terminology injected into every LLM prompt.
 - **Human-in-the-Loop** — Confidence scoring + in-app bilingual review editor.
 
 ---
@@ -36,12 +36,12 @@ InfiTrans is a self-hosted, enterprise-grade document translation platform that 
 ```mermaid
 graph TB
     subgraph Client ["Browser (SvelteKit SPA)"]
-        UI[InfiTrans UI<br/>Dark Glassmorphism]
+        UI[InfiTrans UI<br/>Web3 Wallet Integration]
     end
 
     subgraph Docker ["Docker Compose Stack"]
         subgraph App ["FastAPI Application :8000"]
-            API[REST API<br/>JWT Auth]
+            API[REST API<br/>JWT / Solana Auth]
             ORCH[Orchestrator<br/>Pipeline]
             WP[Worker Pool<br/>Async Queue]
         end
@@ -53,13 +53,17 @@ graph TB
     end
     
     subgraph LLM ["LLM Engine"]
-        OLLAMA[Ollama :11434<br/>HY-MT1.5-1.8B]
+        ROUTER[Model Router]
+        OLLAMA[Local Ollama]
+        CLOUD[Cloud Providers<br/>OpenAI, Anthropic, etc.]
     end
 
-    UI -->|HTTPS + JWT| API
+    UI -->|HTTPS + JWT / Web3| API
     API --> WP
     WP --> ORCH
-    ORCH -->|Generate| OLLAMA
+    ORCH --> ROUTER
+    ROUTER -->|Local Inference| OLLAMA
+    ROUTER -->|OpenAI-Compat API| CLOUD
     ORCH -->|Read/Write| MINIO
     API -->|CRUD| SURREAL
     ORCH -->|Job Status| SURREAL
@@ -86,7 +90,7 @@ graph LR
 | Phase | Engine | What It Does |
 |:------|:-------|:-------------|
 | **Extract** | `zipfile` + `xml.etree` | Walk XML trees, build inline-tag strings `<tagX>` → `segments[]` |
-| **Translate** | LLM via Ollama | Batch translate with tag preservation via prompt engineering |
+| **Translate** | Multi-Model Router | Route to best LLM (Local/Cloud) based on `MODEL_{SRC}_{TGT}` rules |
 | **Score** | Multi-signal heuristic | Confidence scoring (HIGH/MEDIUM/LOW) per segment |
 | **Review** | Web Editor / XLIFF | In-app bilingual editing or CAT tool roundtrip |
 | **Reconstruct** | Deterministic Python | ZIP clone → replace text → format-preserved output |
@@ -142,7 +146,7 @@ cp .env.example .env
 ### 2. Pull Translation Model
 
 ```bash
-ollama pull demonbyron/HY-MT1.5-1.8B:latest
+ollama pull gemma4:31b-cloud
 ```
 
 ### 3. Start Services
@@ -188,7 +192,7 @@ All settings via environment variables. Priority: **env vars > .env file > defau
 |:---------|:--------|:------------|
 | `OLLAMA_URL` | `http://ollama:11434` | Ollama API endpoint |
 | `OLLAMA_TIMEOUT` | `1800` | Request timeout (seconds) |
-| `MODEL` | `demonbyron/HY-MT1.5-1.8B:latest` | Translation LLM model |
+| `MODEL` | `gemma4:31b-cloud` | Translation LLM model |
 | `SOURCE_LANG` | `auto` | Default source language |
 | `TARGET_LANG` | `en` | Default target language |
 | `DEFAULT_DOMAIN` | `general` | Default translation domain |
@@ -274,8 +278,9 @@ infitrans/
 │   │   │   └── xliff.py                  # XLIFF 1.2/2.1 export/import
 │   │   ├── llm/                      # LLM abstraction layer
 │   │   │   ├── base.py                   # Abstract LLMClient
-│   │   │   ├── factory.py                # Backend factory
-│   │   │   └── model_router.py           # Per-language model routing
+│   │   │   ├── factory.py                # Backend factory (Ollama/Cloud)
+│   │   │   ├── model_router.py           # Tiered multi-model resolution
+│   │   │   └── openai_compat.py          # Universal OpenAI API client
 │   │   ├── ollama/                   # Ollama HTTP client
 │   │   ├── prompts/                  # Prompt engineering resources
 │   │   │   ├── rules/formats/            # OOXML / plaintext rules
@@ -283,9 +288,9 @@ infitrans/
 │   │   │       ├── languages/source/     # 15 source language prompts
 │   │   │       ├── languages/target/     # 15 target language prompts
 │   │   │       └── domains/              # 7 domain prompts
-│   │   ├── routes/                   # FastAPI endpoints
+│   │   ├── routes/                   # Admin, Billing, Wallet Auth, Jobs
 │   │   ├── utils/                    # Language detection, file detect
-│   │   ├── auth.py                   # JWT + bcrypt authentication
+│   │   ├── auth.py                   # JWT + Wallet Auth
 │   │   ├── config.py                 # Environment settings
 │   │   ├── database.py               # SurrealDB async client
 │   │   ├── storage.py                # MinIO object storage
@@ -326,7 +331,7 @@ infitrans/
 |:------|:-----------|
 | Frontend | SvelteKit 2 + Paraglide-JS (i18n) + TypeScript |
 | Backend | FastAPI + Python 3.13 + asyncio |
-| LLM | Ollama + HY-MT1.5-1.8B (1.8B params) |
+| LLM | Ollama + gemma4:31b-cloud (31B params) |
 | Database | SurrealDB v2.1.4 |
 | Object Storage | MinIO (S3-compatible) |
 | Auth | JWT + bcrypt (native, no passlib) |

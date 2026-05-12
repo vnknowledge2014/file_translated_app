@@ -181,7 +181,7 @@
   "llm_backend": "ollama",
   "llm": "connected",
   "database": "connected",
-  "model": "HY-MT1.5-1.8B"
+  "model": "gemma4:31b-cloud"
 }`,
         },
     ];

@@ -64,8 +64,9 @@
 | File | Purpose | Key Exports |
 |:-----|:--------|:------------|
 | `base.py` | Abstract LLMClient interface | `LLMClient` |
-| `factory.py` | Backend factory (currently Ollama-only) | `create_llm_client` |
-| `model_router.py` | Per-language-pair model routing via env vars | `model_router` |
+| `factory.py` | Backend factory (Ollama or Cloud) | `create_llm_client` |
+| `model_router.py` | Tiered model resolution via Env Vars | `model_router` |
+| `openai_compat.py` | OpenAI-compatible API client for OpenRouter/Anthropic/Google | `OpenAICompatClient` |
 
 ### Ollama Client — `backend/app/ollama/`
 
@@ -79,7 +80,10 @@
 
 | File | Endpoints | Auth |
 |:-----|:----------|:-----|
-| `auth.py` | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/forgot-password` | Public / JWT |
+| `auth.py` / `wallet_auth.py` | `/api/auth/*` | Public / Web3 |
+| `admin.py` | `/api/admin/*` (Users, System config) | Admin JWT |
+| `billing.py` | `/api/billing/*` (Solana Pay transactions) | JWT |
+| `api_keys.py` | `/api/keys/*` (API key provisioning) | JWT |
 | `upload.py` | `POST /api/upload` | JWT |
 | `jobs.py` | `GET /api/jobs`, `GET /api/jobs/{id}` | JWT |
 | `download.py` | `GET /api/download/{id}` | JWT |
@@ -131,21 +135,23 @@ prompts/
 
 | Route Group | Path | Purpose |
 |:------------|:-----|:--------|
-| `(marketing)` | `/` | Landing page with product info |
-| `(auth)` | `/login`, `/register`, `/forgot-password` | Authentication pages |
-| `(app)` | `/translate` | Main translation workspace (protected) |
+| `(marketing)` | `/` | Landing page, Pricing, API Docs |
+| `(auth)` | `/login`, `/register`, `/forgot-password`, Wallet Auth | Authentication pages |
+| `(app)` | `/translate`, `/admin`, `/settings` | Workspace, Dashboard, Admin panels |
 
 ### Components — `frontend/src/lib/components/`
 
 | Component | Responsibility |
 |:----------|:---------------|
-| `LanguageSwitcher.svelte` | UI language toggle (EN/VI/JA) via Paraglide |
+| `LanguageSwitcher.svelte` | UI language toggle (EN/VI/JA/ZH) via Paraglide |
 | `LanguageBar.svelte` | Source/Target/Domain dropdowns with swap button |
 | `UploadZone.svelte` | Drag-drop upload, file type badges, XLIFF toggle, version select |
-| `JobCard.svelte` | Job progress bar, status pills, download buttons, review link |
+| `JobCard.svelte` | Job progress tracking with real-time updates |
 | `GlossaryTable.svelte` | Glossary CRUD: add terms, CSV upload, delete, toggle replacement |
 | `BilingualEditor.svelte` | Split-pane segment review modal with confidence badges |
 | `XliffImport.svelte` | XLIFF file upload for reviewed translations |
+| `ToastContainer.svelte` | Global toast notification system |
+| `solana-pay.ts` | Solana Web3 connection and payment verification logic |
 | `icons/` | SVG icon components (no emoji in UI) |
 
 ### Stores — `frontend/src/lib/stores/`

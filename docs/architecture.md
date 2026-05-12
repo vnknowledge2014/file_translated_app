@@ -10,13 +10,13 @@
 ```mermaid
 graph TB
     subgraph Browser ["Client (Browser)"]
-        SPA["SvelteKit SPA<br/>Paraglide i18n<br/>Dark Glassmorphism"]
+        SPA["SvelteKit SPA<br/>Paraglide i18n<br/>Solana Web3 Auth"]
     end
 
     subgraph DC ["Docker Compose Stack"]
         subgraph FastAPI ["FastAPI :8000"]
-            AUTH["Auth Module<br/>JWT + bcrypt"]
-            ROUTES["REST API<br/>12 Endpoints"]
+            AUTH["Auth Module<br/>JWT + Web3/Solana"]
+            ROUTES["REST API<br/>Admin, Billing, Jobs"]
             SPA_SERVE["SPA Static Server<br/>Catch-all Fallback"]
             WORKER["Worker Pool<br/>Bounded Async Queue"]
         end
@@ -35,8 +35,10 @@ graph TB
         end
     end
 
-    subgraph LLM ["LLM Engine (Host)"]
-        OLLAMA["Ollama :11434<br/>HY-MT1.5-1.8B<br/>demonbyron/HY-MT1.5-1.8B"]
+    subgraph LLM ["LLM Engine (Multi-Model)"]
+        ROUTER["Model Router<br/>Tiered Resolution"]
+        OLLAMA["Ollama (Local)"]
+        CLOUD["Cloud API<br/>OpenAI-Compat"]
     end
 
     SPA -->|JWT Bearer| ROUTES
@@ -45,7 +47,9 @@ graph TB
     WORKER --> EXT
     EXT --> TRANS
     TRANS -->|Prompt| PR
-    TRANS -->|HTTP /api/generate| OLLAMA
+    TRANS --> ROUTER
+    ROUTER -->|HTTP API| OLLAMA
+    ROUTER -->|OpenAI-Compat| CLOUD
     TRANS --> SCORE
     SCORE --> RECON
     ROUTES -->|CRUD| SURREAL
@@ -105,9 +109,9 @@ Priority: **env vars > docker-compose environment > .env file > built-in default
 
 ```mermaid
 graph TD
-    ROOT["/"] --> MARKETING["(marketing)<br/>Landing Page<br/>SEO + Product Info"]
-    ROOT --> AUTH_GROUP["(auth)"]
-    ROOT --> APP_GROUP["(app)"]
+    ROOT["/"] --> MARKETING["(marketing)<br/>Landing, API Docs, Pricing"]
+    ROOT --> AUTH_GROUP["(auth)<br/>Login, Web3 Auth"]
+    ROOT --> APP_GROUP["(app)<br/>Translate, Dashboard, Admin"]
     
     AUTH_GROUP --> LOGIN["/login"]
     AUTH_GROUP --> REGISTER["/register"]
@@ -189,9 +193,10 @@ flowchart TB
     CACHE -->|Hit| RET["Return cached"]
     CACHE -->|Miss| PROMPT["Build Prompt"]
     
-    PROMPT --> ROUTER["Prompt Router<br/>base + source + target<br/>+ domain + format<br/>+ glossary"]
-    ROUTER --> OLLAMA["Ollama<br/>/api/generate"]
-    OLLAMA --> SPLIT["Split |||"]
+    PROMPT --> PR["Prompt Router<br/>base + source + target<br/>+ domain + format<br/>+ glossary"]
+    PR --> ROUTER["Model Router<br/>Resolves Best LLM"]
+    ROUTER --> LLM_CLIENT{"LLM Client<br/>Ollama OR Cloud"}
+    LLM_CLIENT --> SPLIT["Split |||"]
     
     SPLIT --> V1{"Source<br/>Leak?"}
     V1 -->|Yes| RETRY1["1-by-1 Retry"]
