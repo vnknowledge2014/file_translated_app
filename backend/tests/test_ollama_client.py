@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.ollama.client import OllamaClient
-from app.ollama.exceptions import OllamaConnectionError, OllamaModelError
+from app.ollama.exceptions import OllamaConnectionError
 
 
 @pytest.fixture
@@ -38,11 +38,15 @@ class TestOllamaClient:
 
     async def test_generate_text(self, mock_transport):
         """Scenario: Generate text completion."""
-        mock_transport.set_response("POST", "/api/generate", 200, {"response": "translated text"})
+        mock_transport.set_response(
+            "POST", "/api/generate", 200, {"response": "translated text"}
+        )
         client = OllamaClient.__new__(OllamaClient)
         client.base_url = "http://mock:11434"
         client.timeout = 120.0
-        client._client = httpx.AsyncClient(transport=mock_transport, base_url="http://mock:11434")
+        client._client = httpx.AsyncClient(
+            transport=mock_transport, base_url="http://mock:11434"
+        )
 
         result = await client.generate("gemma4:e4b", "translate this")
         assert result == "translated text"
@@ -54,7 +58,9 @@ class TestOllamaClient:
         client = OllamaClient.__new__(OllamaClient)
         client.base_url = "http://mock:11434"
         client.timeout = 120.0
-        client._client = httpx.AsyncClient(transport=mock_transport, base_url="http://mock:11434")
+        client._client = httpx.AsyncClient(
+            transport=mock_transport, base_url="http://mock:11434"
+        )
 
         result = await client.generate("model", "user prompt", system="system prompt")
         assert result == "ok"
@@ -66,11 +72,15 @@ class TestOllamaClient:
 
     async def test_generate_with_images(self, mock_transport):
         """Scenario: Vision mode with base64 images."""
-        mock_transport.set_response("POST", "/api/generate", 200, {"response": "image desc"})
+        mock_transport.set_response(
+            "POST", "/api/generate", 200, {"response": "image desc"}
+        )
         client = OllamaClient.__new__(OllamaClient)
         client.base_url = "http://mock:11434"
         client.timeout = 120.0
-        client._client = httpx.AsyncClient(transport=mock_transport, base_url="http://mock:11434")
+        client._client = httpx.AsyncClient(
+            transport=mock_transport, base_url="http://mock:11434"
+        )
 
         result = await client.generate("model", "describe", images=["base64data"])
         assert result == "image desc"
@@ -81,13 +91,18 @@ class TestOllamaClient:
 
     async def test_list_models(self, mock_transport):
         """Scenario: List available models."""
-        mock_transport.set_response("GET", "/api/tags", 200, {
-            "models": [{"name": "gemma4:e4b"}, {"name": "translategemma:4b"}]
-        })
+        mock_transport.set_response(
+            "GET",
+            "/api/tags",
+            200,
+            {"models": [{"name": "gemma4:e4b"}, {"name": "translategemma:4b"}]},
+        )
         client = OllamaClient.__new__(OllamaClient)
         client.base_url = "http://mock:11434"
         client.timeout = 120.0
-        client._client = httpx.AsyncClient(transport=mock_transport, base_url="http://mock:11434")
+        client._client = httpx.AsyncClient(
+            transport=mock_transport, base_url="http://mock:11434"
+        )
 
         models = await client.list_models()
         assert len(models) == 2
@@ -100,7 +115,9 @@ class TestOllamaClient:
         client = OllamaClient.__new__(OllamaClient)
         client.base_url = "http://mock:11434"
         client.timeout = 120.0
-        client._client = httpx.AsyncClient(transport=mock_transport, base_url="http://mock:11434")
+        client._client = httpx.AsyncClient(
+            transport=mock_transport, base_url="http://mock:11434"
+        )
 
         assert await client.health_check() is True
         await client.close()

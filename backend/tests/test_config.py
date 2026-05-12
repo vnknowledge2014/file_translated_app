@@ -1,6 +1,5 @@
 """Tests for app.config — Settings."""
 
-import os
 from app.config import Settings
 
 
@@ -62,7 +61,7 @@ class TestSettings:
     def test_max_segment_chars_default(self, monkeypatch):
         monkeypatch.delenv("MAX_SEGMENT_CHARS", raising=False)
         settings = Settings()
-        assert settings.MAX_SEGMENT_CHARS == 400
+        assert settings.MAX_SEGMENT_CHARS == 500
 
     def test_batch_max_chars_default(self, monkeypatch):
         monkeypatch.delenv("BATCH_MAX_CHARS", raising=False)
@@ -72,4 +71,4 @@ class TestSettings:
     def test_batch_max_segments_default(self, monkeypatch):
         monkeypatch.delenv("BATCH_MAX_SEGMENTS", raising=False)
         settings = Settings()
-        assert settings.BATCH_MAX_SEGMENTS == 5
+        assert settings.BATCH_MAX_SEGMENTS == 12

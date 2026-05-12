@@ -1,101 +1,80 @@
-from datetime import timedelta
+"""Authentication routes — Wallet-only auth.
+
+Auth flows:
+    GET  /api/auth/me   → Current user info (requires JWT or API Key)
+    PUT  /api/auth/me   → Update profile (username)
+
+Wallet login is handled by routes/wallet_auth.py.
+"""
+
+import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.auth import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    create_access_token,
-    get_current_user,
-    get_password_hash,
-    verify_password,
-)
+from app.auth import get_current_user
 from app.database import db
-from app.models import User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-class UserCreate(BaseModel):
-    username: str
-    password: str
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
 class UserResponse(BaseModel):
     id: str
     username: str
     role: str
+    wallet_address: str | None = None
+    plan: str = "free"
 
-@router.post("/register", response_model=UserResponse)
-async def register_user(user_in: UserCreate) -> Any:
-    # Check if user exists
-    result = await db.query(
-        "SELECT * FROM user WHERE username = $username LIMIT 1",
-        {"username": user_in.username}
-    )
-    records = result[0].get("result", [])
-    if records:
-        raise HTTPException(
-            status_code=400,
-            detail="Username already registered"
-        )
-    
-    # Create new user
-    user_obj = User(
-        username=user_in.username,
-        hashed_password=get_password_hash(user_in.password),
-        role="user"
-    )
-    
-    created = await db.create("user", user_obj.model_dump(exclude={"id"}, mode="json"))
-    if not created:
-        raise HTTPException(status_code=500, detail="Failed to create user")
-        
-    user = created[0] if isinstance(created, list) else created
-    return UserResponse(
-        id=user.get("id"),
-        username=user.get("username"),
-        role=user.get("role")
-    )
 
-@router.post("/login", response_model=Token)
-async def login_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends()
-) -> Any:
-    # Authenticate user
-    result = await db.query(
-        "SELECT * FROM user WHERE username = $username LIMIT 1",
-        {"username": form_data.username}
-    )
-    records = result[0].get("result", [])
-    if not records:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-        
-    user = records[0]
-    if not verify_password(form_data.password, user.get("hashed_password", "")):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    
-    if not user.get("is_active", True):
-        raise HTTPException(status_code=400, detail="Inactive user")
-        
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user["username"]}, expires_delta=access_token_expires
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-    }
+class UpdateProfileRequest(BaseModel):
+    username: str | None = None
+
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     return UserResponse(
         id=current_user.get("id"),
         username=current_user.get("username"),
-        role=current_user.get("role")
+        role=current_user.get("role"),
+        wallet_address=current_user.get("wallet_address"),
+        plan=current_user.get("plan", "free"),
     )
+
+
+@router.put("/me")
+async def update_profile(
+    data: UpdateProfileRequest,
+    current_user: dict = Depends(get_current_user),
+) -> Any:
+    """Update user profile (username)."""
+    user_id = current_user.get("id")
+    updates: dict = {}
+
+    if data.username is not None:
+        name = data.username.strip()
+        if len(name) < 2 or len(name) > 32:
+            raise HTTPException(400, "Username must be 2-32 characters")
+        if not re.match(r"^[a-zA-Z0-9_.\- ]+$", name):
+            raise HTTPException(
+                400, "Username can only contain letters, numbers, spaces, and _.-"
+            )
+
+        # Check uniqueness
+        result = await db.query(
+            "SELECT id FROM user WHERE username = $u AND id != $uid LIMIT 1",
+            {"u": name, "uid": user_id},
+        )
+        records = result if isinstance(result, list) else [result] if result else []
+        if records:
+            raise HTTPException(409, "Username already taken")
+
+        updates["username"] = name
+
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+
+    set_clauses = ", ".join(f"{k} = ${k}" for k in updates)
+    await db.query(f"UPDATE type::record($uid) SET {set_clauses}", {"uid": user_id, **updates})
+
+    return {"message": "Profile updated", **updates}

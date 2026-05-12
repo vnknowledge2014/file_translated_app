@@ -132,7 +132,9 @@ class TestAnalyzeSegment:
 
     def test_jp_with_english_terms_it_domain(self):
         """Scenario: Japanese with embedded English technical terms in IT domain"""
-        result = analyze_segment("APIキーを設定してDockerコンテナを起動する", domain_code="it")
+        result = analyze_segment(
+            "APIキーを設定してDockerコンテナを起動する", domain_code="it"
+        )
         assert result["dominant"] == "ja"
         assert result["has_english"] is True
         assert "API" in result["preserve_terms"]
@@ -141,11 +143,13 @@ class TestAnalyzeSegment:
     def test_jp_with_english_terms_general_domain(self):
         """Scenario: English terms in General domain should NOT be preserved automatically unless explicitly requested or recognized."""
         # API and Docker might not be preserved in general domain since it doesn't aggressively preserve
-        result = analyze_segment("APIキーを設定してDockerコンテナを起動する", domain_code="general")
+        result = analyze_segment(
+            "APIキーを設定してDockerコンテナを起動する", domain_code="general"
+        )
         assert result["dominant"] == "ja"
         assert result["has_english"] is True
         assert len(result["preserve_terms"]) == 0
-        
+
     def test_medical_domain(self):
         """Scenario: Medical domain preserves specific Latin/English acronyms like DNA"""
         result = analyze_segment("患者のDNAサンプルを分析する", domain_code="medical")

@@ -20,27 +20,34 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._common import build_translation_map, replace_in_text
-from ._ooxml import NS, preserve_xml_declaration, register_document_namespaces, replace_paragraph_runs
+from ._ooxml import (
+    NS,
+    preserve_xml_declaration,
+    register_document_namespaces,
+    replace_paragraph_runs,
+)
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ──
 
-_FORBIDDEN_SHEET_CHARS = '\\/?*[]:\n\r\t|'
+_FORBIDDEN_SHEET_CHARS = "\\/?*[]:\n\r\t|"
 
 _JP_FONT_MAP = {
-    'ＭＳ Ｐゴシック': 'Arial',
-    'ＭＳ ゴシック': 'Arial',
-    'ＭＳ 明朝': 'Times New Roman',
-    'メイリオ': 'Arial',
-    'Meiryo UI': 'Arial',
+    "ＭＳ Ｐゴシック": "Arial",
+    "ＭＳ ゴシック": "Arial",
+    "ＭＳ 明朝": "Times New Roman",
+    "メイリオ": "Arial",
+    "Meiryo UI": "Arial",
 }
 
 _FONT_PATCH_FILES = {
-    'xl/styles.xml', 'xl/theme/theme1.xml', 'xl/sharedStrings.xml',
+    "xl/styles.xml",
+    "xl/theme/theme1.xml",
+    "xl/sharedStrings.xml",
 }
 
-_JP_CHAR_RE = re.compile(r'[\u3040-\u30ff\u4e00-\u9fff]')
+_JP_CHAR_RE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
 
 
 # ── Sheet name helpers ──
@@ -49,30 +56,28 @@ _JP_CHAR_RE = re.compile(r'[\u3040-\u30ff\u4e00-\u9fff]')
 def _sanitize_sheet_name(name: str) -> str:
     """Strip forbidden Excel characters and truncate to 31 chars."""
     for c in _FORBIDDEN_SHEET_CHARS:
-        name = name.replace(c, '_')
-    name = name.strip('_ ')
-    return name[:31] if name else ''
+        name = name.replace(c, "_")
+    name = name.strip("_ ")
+    return name[:31] if name else ""
 
 
-def _build_sheet_name_map(
-    file_path: str, tmap: dict[str, str]
-) -> dict[str, str]:
+def _build_sheet_name_map(file_path: str, tmap: dict[str, str]) -> dict[str, str]:
     """Pre-pass: read workbook.xml and build old→new sheet name map.
 
     Ensures collision-free, sanitized names within the 31-char Excel limit.
     """
     sheet_name_map: dict[str, str] = {}
     try:
-        with zipfile.ZipFile(file_path, 'r') as zp:
-            if 'xl/workbook.xml' not in zp.namelist():
+        with zipfile.ZipFile(file_path, "r") as zp:
+            if "xl/workbook.xml" not in zp.namelist():
                 return sheet_name_map
-            wb_raw = zp.read('xl/workbook.xml').decode('utf-8')
+            wb_raw = zp.read("xl/workbook.xml").decode("utf-8")
             all_names = re.findall(r'<sheet\b[^>]+\bname="([^"]*)"', wb_raw)
 
             seen: set[str] = set()
             for name in all_names:
                 if not name:
-                    seen.add('')
+                    seen.add("")
                     continue
                 trans = replace_in_text(name, tmap)
                 final = _sanitize_sheet_name(trans if trans else name)
@@ -81,7 +86,7 @@ def _build_sheet_name_map(
                 base, ctr = final, 1
                 while final.lower() in seen:
                     sfx = f"_{ctr}"
-                    final = base[:31 - len(sfx)] + sfx
+                    final = base[: 31 - len(sfx)] + sfx
                     ctr += 1
                 seen.add(final.lower())
                 if final != name:
@@ -104,13 +109,13 @@ def _safe_replace(t: str, search: str, replacement: str) -> str:
         if idx == -1:
             out.append(t[i:])
             break
-        if idx > 0 and t[idx - 1] == ']':
-            out.append(t[i:idx + len(search)])
+        if idx > 0 and t[idx - 1] == "]":
+            out.append(t[i : idx + len(search)])
         else:
             out.append(t[i:idx])
             out.append(replacement)
         i = idx + len(search)
-    return ''.join(out)
+    return "".join(out)
 
 
 def _needs_quoting(name: str) -> bool:
@@ -119,7 +124,7 @@ def _needs_quoting(name: str) -> bool:
     Excel requires quoting when the sheet name contains spaces, special
     characters, or Unicode (e.g., Vietnamese diacritics).
     """
-    if ' ' in name:
+    if " " in name:
         return True
     if any(c in name for c in r"![]''\"<>*+"):
         return True
@@ -136,9 +141,9 @@ def _fix_sheet_refs_in_text(text: str, name_map: dict[str, str]) -> str:
     Skips external workbook refs ([N]Sheet!).
     """
     for old, new in sorted(name_map.items(), key=lambda x: -len(x[0])):
-        new_esc = html.escape(new) if '<' in new or '&' in new else new
+        new_esc = html.escape(new) if "<" in new or "&" in new else new
         text = _safe_replace(text, f"'{old}'!", f"'{new_esc}'!")
-        if ' ' not in old and not any(c in old for c in "![\\'"):
+        if " " not in old and not any(c in old for c in "![\\'"):
             if _needs_quoting(new_esc):
                 text = _safe_replace(text, f"{old}!", f"'{new_esc}'!")
             else:
@@ -154,7 +159,7 @@ def _fix_formula_sheet_refs(formula_text: str, sheet_name_map: dict[str, str]) -
     result = formula_text
     for old, new in sorted(sheet_name_map.items(), key=lambda x: -len(x[0])):
         result = _safe_replace(result, f"'{old}'!", f"'{new}'!")
-        if ' ' not in old and not any(c in old for c in "![\\'"):
+        if " " not in old and not any(c in old for c in "![\\'"):
             if _needs_quoting(new):
                 result = _safe_replace(result, f"{old}!", f"'{new}'!")
             else:
@@ -200,12 +205,12 @@ def _strip_all_phonetics(root: ET.Element) -> None:
 def _patch_japanese_fonts(buffer: bytes, filename: str) -> bytes:
     """Replace Japanese fonts with Latin equivalents in XML content."""
     try:
-        s = buffer.decode('utf-8')
+        s = buffer.decode("utf-8")
         for jp_f, lat_f in _JP_FONT_MAP.items():
             s = s.replace(f'val="{jp_f}"', f'val="{lat_f}"')
             s = s.replace(f'typeface="{jp_f}"', f'typeface="{lat_f}"')
         logger.debug(f"Replaced Japanese fonts in {filename}")
-        return s.encode('utf-8')
+        return s.encode("utf-8")
     except Exception as e:
         logger.error(f"Error patching fonts in {filename}: {e}")
         return buffer
@@ -228,7 +233,7 @@ def _patch_workbook_xml(
     """
     replaced = 0
     try:
-        raw_str = buffer.decode('utf-8')
+        raw_str = buffer.decode("utf-8")
 
         # Build collision-free name map
         all_names = re.findall(r'<sheet\b[^>]+\bname="([^"]*)"', raw_str)
@@ -237,7 +242,7 @@ def _patch_workbook_xml(
 
         for name in all_names:
             if not name:
-                seen_names.add('')
+                seen_names.add("")
                 continue
             trans = replace_in_text(name, tmap)
             final_name = _sanitize_sheet_name(trans if trans else name)
@@ -248,7 +253,7 @@ def _patch_workbook_xml(
             counter = 1
             while final_name.lower() in seen_names:
                 suffix = f"_{counter}"
-                final_name = original_base[:31 - len(suffix)] + suffix
+                final_name = original_base[: 31 - len(suffix)] + suffix
                 counter += 1
 
             seen_names.add(final_name.lower())
@@ -261,19 +266,18 @@ def _patch_workbook_xml(
             new = name_map.get(old, old)
             if new != old and replace_in_text(old, tmap):
                 replaced += 1
-            return m.group(0).replace(
-                f'name="{old}"', f'name="{html.escape(new)}"', 1
-            )
+            return m.group(0).replace(f'name="{old}"', f'name="{html.escape(new)}"', 1)
 
         new_str = re.sub(
             r'<sheet\b[^>]+\bname="([^"]*)"[^>]*/?>',
-            _replace_sheet_name, raw_str,
+            _replace_sheet_name,
+            raw_str,
         )
 
         # Fix <definedName> formula refs
         if name_map:
             new_str = re.sub(
-                r'<definedName([^>]*)>([^<]*)</definedName>',
+                r"<definedName([^>]*)>([^<]*)</definedName>",
                 lambda m: (
                     f"<definedName{m.group(1)}>"
                     f"{_fix_sheet_refs_in_text(m.group(2), name_map)}"
@@ -283,11 +287,11 @@ def _patch_workbook_xml(
             )
 
         # Inject fullCalcOnLoad to force Excel recalculation (only if not already present)
-        if '<calcPr ' in new_str and 'fullCalcOnLoad' not in new_str:
-            new_str = re.sub(r'<calcPr\s', '<calcPr fullCalcOnLoad="1" ', new_str)
+        if "<calcPr " in new_str and "fullCalcOnLoad" not in new_str:
+            new_str = re.sub(r"<calcPr\s", '<calcPr fullCalcOnLoad="1" ', new_str)
 
         if new_str != raw_str:
-            buffer = new_str.encode('utf-8')
+            buffer = new_str.encode("utf-8")
 
     except Exception as e:
         logger.error(f"Error processing workbook.xml: {e}")
@@ -305,9 +309,9 @@ def _process_worksheet(
     """Process a worksheet XML: fix formula sheet refs and strip stale cached values."""
     # Fix formula sheet references
     if sheet_name_map:
-        buf_str = buffer.decode('utf-8')
+        buf_str = buffer.decode("utf-8")
         new_buf = re.sub(
-            r'<(f|formula|formula1|formula2|formula3)([^>]*)>([^<]*)</\1>',
+            r"<(f|formula|formula1|formula2|formula3)([^>]*)>([^<]*)</\1>",
             lambda m: (
                 f"<{m.group(1)}{m.group(2)}>"
                 f"{_fix_formula_sheet_refs(m.group(3), sheet_name_map)}"
@@ -316,10 +320,10 @@ def _process_worksheet(
             buf_str,
         )
         if new_buf != buf_str:
-            buffer = new_buf.encode('utf-8')
+            buffer = new_buf.encode("utf-8")
 
     # Strip stale cached <v> values from formula cells with Japanese text
-    buf_str_v = buffer.decode('utf-8')
+    buf_str_v = buffer.decode("utf-8")
 
     def _strip_jp_cached(m):
         cached_val = m.group(2)
@@ -327,9 +331,9 @@ def _process_worksheet(
             return m.group(1)  # drop <v>...</v>
         return m.group(0)
 
-    cleaned = re.sub(r'(</f>)(<v>[^<]*</v>)', _strip_jp_cached, buf_str_v)
+    cleaned = re.sub(r"(</f>)(<v>[^<]*</v>)", _strip_jp_cached, buf_str_v)
     if cleaned != buf_str_v:
-        buffer = cleaned.encode('utf-8')
+        buffer = cleaned.encode("utf-8")
 
     return buffer
 
@@ -342,17 +346,17 @@ def _process_drawing(buffer: bytes, sheet_name_map: dict[str, str]) -> bytes:
     if not sheet_name_map:
         return buffer
 
-    buf_str = buffer.decode('utf-8')
+    buf_str = buffer.decode("utf-8")
     changed = buf_str
     for old, new in sorted(sheet_name_map.items(), key=lambda x: -len(x[0])):
         changed = _safe_replace(changed, f"'{old}'!", f"'{new}'!")
-        if ' ' not in old and not any(c in old for c in "![\\'"):
+        if " " not in old and not any(c in old for c in "![\\'"):
             if _needs_quoting(new):
                 changed = _safe_replace(changed, f"{old}!", f"'{new}'!")
             else:
                 changed = _safe_replace(changed, f"{old}!", f"{new}!")
     if changed != buf_str:
-        return changed.encode('utf-8')
+        return changed.encode("utf-8")
     return buffer
 
 
@@ -371,7 +375,7 @@ def _process_drawing_text(buffer: bytes, tmap: dict[str, str]) -> tuple[bytes, i
     """
     replaced = 0
     try:
-        buf_str = buffer.decode('utf-8')
+        buf_str = buffer.decode("utf-8")
         changed = buf_str
 
         # Match <a:t ...>text</a:t> or <a:t>text</a:t>
@@ -387,13 +391,13 @@ def _process_drawing_text(buffer: bytes, tmap: dict[str, str]) -> tuple[bytes, i
             return m.group(0)
 
         changed = re.sub(
-            r'(<a:t[^>]*>)([^<]+)</a:t>',
+            r"(<a:t[^>]*>)([^<]+)</a:t>",
             _replace_t,
             changed,
         )
 
         if changed != buf_str:
-            buffer = changed.encode('utf-8')
+            buffer = changed.encode("utf-8")
 
     except Exception as e:
         logger.error(f"Error processing drawing text: {e}")
@@ -404,9 +408,7 @@ def _process_drawing_text(buffer: bytes, tmap: dict[str, str]) -> tuple[bytes, i
 # ── Main entry point ──
 
 
-def reconstruct_xlsx(
-    file_path: str, segments: list[dict], output_path: str
-) -> str:
+def reconstruct_xlsx(file_path: str, segments: list[dict], output_path: str) -> str:
     """Deterministic XLSX reconstruction.
 
     Strategy: Read original ZIP → process each entry → write new ZIP.
@@ -431,61 +433,62 @@ def reconstruct_xlsx(
     # Pre-pass: build sheet name map for cross-reference fixing
     sheet_name_map = _build_sheet_name_map(file_path, tmap)
 
-    with zipfile.ZipFile(file_path, 'r') as zin, \
-         zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-
+    with (
+        zipfile.ZipFile(file_path, "r") as zin,
+        zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
         for item in zin.infolist():
             buffer = zin.read(item.filename)
             fn = item.filename
 
             # Drop calcChain.xml to force Excel to rebuild formula caches
-            if fn == 'xl/calcChain.xml':
+            if fn == "xl/calcChain.xml":
                 continue
 
             # ── Clean calcChain references from Content_Types and rels ──
             # When we drop calcChain.xml, references to it in these files
             # cause Excel to report corruption ("file not found").
-            if fn == '[Content_Types].xml':
-                buf_str = buffer.decode('utf-8')
+            if fn == "[Content_Types].xml":
+                buf_str = buffer.decode("utf-8")
                 buf_str = re.sub(
-                    r'<Override[^>]*PartName="/xl/calcChain\.xml"[^>]*/>', '', buf_str
+                    r'<Override[^>]*PartName="/xl/calcChain\.xml"[^>]*/>', "", buf_str
                 )
-                buffer = buf_str.encode('utf-8')
+                buffer = buf_str.encode("utf-8")
                 zout.writestr(item, buffer)
                 continue
 
-            if fn == 'xl/_rels/workbook.xml.rels':
-                buf_str = buffer.decode('utf-8')
+            if fn == "xl/_rels/workbook.xml.rels":
+                buf_str = buffer.decode("utf-8")
                 buf_str = re.sub(
-                    r'<Relationship[^>]*Target="calcChain\.xml"[^>]*/>', '', buf_str
+                    r'<Relationship[^>]*Target="calcChain\.xml"[^>]*/>', "", buf_str
                 )
-                buffer = buf_str.encode('utf-8')
+                buffer = buf_str.encode("utf-8")
                 zout.writestr(item, buffer)
                 continue
 
             # ── Workbook.xml: sheet name translation ──
-            if fn == 'xl/workbook.xml':
+            if fn == "xl/workbook.xml":
                 buffer, wb_replaced = _patch_workbook_xml(buffer, tmap, sheet_name_map)
                 replaced += wb_replaced
                 zout.writestr(item, buffer)
                 continue
 
             # ── Font patching (styles, theme, sharedStrings, drawings) ──
-            if fn in _FONT_PATCH_FILES or fn.startswith('xl/drawings/'):
+            if fn in _FONT_PATCH_FILES or fn.startswith("xl/drawings/"):
                 buffer = _patch_japanese_fonts(buffer, fn)
 
             # ── Identify text-bearing XML files ──
-            is_shared_strings = fn == 'xl/sharedStrings.xml'
-            is_worksheet = fn.startswith('xl/worksheets/') and fn.endswith('.xml')
+            is_shared_strings = fn == "xl/sharedStrings.xml"
+            is_worksheet = fn.startswith("xl/worksheets/") and fn.endswith(".xml")
             is_drawing = (
-                fn.startswith('xl/drawings/') or fn.startswith('xl/charts/')
-            ) and fn.endswith('.xml')
+                fn.startswith("xl/drawings/") or fn.startswith("xl/charts/")
+            ) and fn.endswith(".xml")
 
             # ── Worksheet: formula ref fixing + cached value stripping ──
             if is_worksheet:
                 buffer = _process_worksheet(buffer, sheet_name_map)
                 # Only process via ET if it has inline strings
-                if b'inlineStr' not in buffer:
+                if b"inlineStr" not in buffer:
                     zout.writestr(item, buffer)
                     continue
 
@@ -506,24 +509,31 @@ def reconstruct_xlsx(
                     para_tag = f"{{{NS['a']}}}p"
                     r_tag = f"{{{NS['a']}}}r"
                     t_tag = f"{{{NS['a']}}}t"
-                    ns_key = 'a'
+                    ns_key = "a"
 
                     count = replace_paragraph_runs(
-                        root, tmap, para_tag, r_tag, t_tag, ns_key,
+                        root,
+                        tmap,
+                        para_tag,
+                        r_tag,
+                        t_tag,
+                        ns_key,
                     )
                     if count > 0:
                         # Extract original XML declaration
-                        raw_str = buffer.decode('utf-8')
-                        xml_decl = ''
-                        if raw_str.startswith('<?xml'):
-                            decl_end = raw_str.find('?>') + 2
+                        raw_str = buffer.decode("utf-8")
+                        xml_decl = ""
+                        if raw_str.startswith("<?xml"):
+                            decl_end = raw_str.find("?>") + 2
                             xml_decl = raw_str[:decl_end]
                         if not xml_decl:
                             xml_decl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                         # Use ET.tostring directly (xmlns hoisted to root = valid)
-                        et_xml = ET.tostring(root, encoding='unicode', xml_declaration=False)
-                        et_xml = et_xml.replace(' />', '/>')
-                        buffer = (xml_decl + '\r\n' + et_xml).encode('utf-8')
+                        et_xml = ET.tostring(
+                            root, encoding="unicode", xml_declaration=False
+                        )
+                        et_xml = et_xml.replace(" />", "/>")
+                        buffer = (xml_decl + "\r\n" + et_xml).encode("utf-8")
                         replaced += count
 
                 except Exception as e:
@@ -531,8 +541,36 @@ def reconstruct_xlsx(
                 zout.writestr(item, buffer)
                 continue
 
+            # ── Comments (xl/comments*.xml) ──
+            is_comment = fn.startswith("xl/comments") and fn.endswith(".xml")
+            if is_comment:
+                try:
+                    register_document_namespaces(buffer)
+                    root = ET.fromstring(buffer)
+
+                    # Comments use <text> elements containing <r><t> runs
+                    text_tag = f"{{{NS['main']}}}text"
+                    r_tag = f"{{{NS['main']}}}r"
+                    t_tag = f"{{{NS['main']}}}t"
+
+                    count = replace_paragraph_runs(
+                        root,
+                        tmap,
+                        text_tag,
+                        r_tag,
+                        t_tag,
+                        "main",
+                    )
+                    if count > 0:
+                        buffer = preserve_xml_declaration(root, buffer)
+                        replaced += count
+                except Exception as e:
+                    logger.error(f"Error processing comment XML {fn}: {e}")
+                zout.writestr(item, buffer)
+                continue
+
             # ── XML text replacement (sharedStrings, inline worksheet strings) ──
-            if is_shared_strings or (is_worksheet and b'inlineStr' in buffer):
+            if is_shared_strings or (is_worksheet and b"inlineStr" in buffer):
                 try:
                     register_document_namespaces(buffer)
                     root = ET.fromstring(buffer)
@@ -544,22 +582,45 @@ def reconstruct_xlsx(
 
                     r_tag = f"{{{NS['main']}}}r"
                     t_tag = f"{{{NS['main']}}}t"
-                    ns_key = 'main'
+                    ns_key = "main"
 
                     count = replace_paragraph_runs(
-                        root, tmap, para_tag, r_tag, t_tag, ns_key,
+                        root,
+                        tmap,
+                        para_tag,
+                        r_tag,
+                        t_tag,
+                        ns_key,
                         strip_phonetic_fn=_strip_phonetic,
                     )
 
-                    # For sharedStrings: also strip orphaned phoneticPr from
-                    # entries that weren't translated (replace_paragraph_runs
-                    # only strips from entries it actually modified).
                     if is_shared_strings:
                         _strip_all_phonetics(root)
 
                     if count > 0 or is_shared_strings:
                         buffer = preserve_xml_declaration(root, buffer)
                         replaced += count
+
+                        # Fix count/uniqueCount on <sst> for sharedStrings
+                        # preserve_xml_declaration copies the ORIGINAL root tag
+                        # which has stale count/uniqueCount attributes.
+                        # After phonetic stripping, <si> count may change.
+                        # Excel validates these and flags mismatches as corruption.
+                        if is_shared_strings:
+                            si_tag = f"{{{NS['main']}}}si"
+                            actual_count = len(list(root.iter(si_tag)))
+                            buf_str = buffer.decode("utf-8")
+                            buf_str = re.sub(
+                                r'(<sst\b[^>]*)\bcount="[^"]*"',
+                                f'\\1count="{actual_count}"',
+                                buf_str,
+                            )
+                            buf_str = re.sub(
+                                r'(<sst\b[^>]*)\buniqueCount="[^"]*"',
+                                f'\\1uniqueCount="{actual_count}"',
+                                buf_str,
+                            )
+                            buffer = buf_str.encode("utf-8")
 
                 except Exception as e:
                     logger.error(f"Error parsing XML {fn}: {e}")

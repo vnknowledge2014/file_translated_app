@@ -1,6 +1,6 @@
 """Unit Tests — Auth Module.
 
-Tests password hashing, JWT lifecycle, and get_current_user logic.
+Tests JWT lifecycle and get_current_user logic.
 All tests run WITHOUT SurrealDB (mocked via conftest.py).
 """
 
@@ -10,37 +10,11 @@ from unittest.mock import AsyncMock, patch
 
 from app.auth import (
     create_access_token,
-    get_password_hash,
-    verify_password,
     get_current_user,
     SECRET_KEY,
     ALGORITHM,
 )
 import jwt
-
-
-class TestPasswordHashing:
-    """Unit: bcrypt password hash/verify."""
-
-    def test_correct_password_verifies(self):
-        hashed = get_password_hash("mypassword")
-        assert verify_password("mypassword", hashed) is True
-
-    def test_wrong_password_rejected(self):
-        hashed = get_password_hash("correct")
-        assert verify_password("wrong", hashed) is False
-
-    def test_unique_salt_per_hash(self):
-        h1 = get_password_hash("same")
-        h2 = get_password_hash("same")
-        assert h1 != h2
-        assert verify_password("same", h1)
-        assert verify_password("same", h2)
-
-    def test_empty_password(self):
-        hashed = get_password_hash("")
-        assert verify_password("", hashed) is True
-        assert verify_password("notempty", hashed) is False
 
 
 class TestJWTLifecycle:
@@ -57,12 +31,16 @@ class TestJWTLifecycle:
         assert "exp" in payload
 
     def test_custom_expiry(self):
-        token = create_access_token(data={"sub": "alice"}, expires_delta=timedelta(minutes=5))
+        token = create_access_token(
+            data={"sub": "alice"}, expires_delta=timedelta(minutes=5)
+        )
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         assert "exp" in payload
 
     def test_expired_token_rejected(self):
-        token = create_access_token(data={"sub": "alice"}, expires_delta=timedelta(seconds=-10))
+        token = create_access_token(
+            data={"sub": "alice"}, expires_delta=timedelta(seconds=-10)
+        )
         with pytest.raises(jwt.ExpiredSignatureError):
             jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
@@ -74,7 +52,8 @@ class TestJWTLifecycle:
         other_key = "another-secret-key-1234567890abcdef"
         token = jwt.encode(
             {"sub": "alice", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
-            other_key, algorithm=ALGORITHM
+            other_key,
+            algorithm=ALGORITHM,
         )
         with pytest.raises(jwt.InvalidSignatureError):
             jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -91,6 +70,7 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_valid_token_returns_user(self, user_a, token_a):
         import app.database as db_mod
+
         with patch.object(db_mod, "db") as mock_db:
             mock_db.query = AsyncMock(return_value=[{"result": [user_a]}])
             result = await get_current_user(token=token_a)
@@ -101,6 +81,7 @@ class TestGetCurrentUser:
     async def test_missing_sub_raises_401(self):
         token = create_access_token(data={"role": "admin"})
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
         assert exc.value.status_code == 401
@@ -108,9 +89,11 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_user_not_in_db_raises_401(self, token_a):
         import app.database as db_mod
+
         with patch.object(db_mod, "db") as mock_db:
             mock_db.query = AsyncMock(return_value=[{"result": []}])
             from fastapi import HTTPException
+
             with pytest.raises(HTTPException) as exc:
                 await get_current_user(token=token_a)
             assert exc.value.status_code == 401
@@ -118,6 +101,7 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_expired_token_raises_401(self, expired_token):
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=expired_token)
         assert exc.value.status_code == 401
@@ -125,6 +109,7 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_garbage_token_raises_401(self):
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token="garbage.token.here")
         assert exc.value.status_code == 401

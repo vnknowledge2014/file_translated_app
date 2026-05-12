@@ -16,37 +16,153 @@ class DomainProfile:
 
 
 # Base IT terms migrated from language_detect.py
-_IT_TERMS = frozenset({
-    "API", "REST", "GraphQL", "SDK", "CLI", "GUI", "IDE",
-    "HTTP", "HTTPS", "URL", "URI", "DNS", "IP", "TCP", "UDP", "SSH", "SSL", "TLS",
-    "JSON", "XML", "YAML", "CSV", "HTML", "CSS",
-    "JavaScript", "TypeScript", "Python", "Java", "Ruby", "Rust", "Go", "PHP",
-    "React", "Vue", "Angular", "Next", "Nuxt", "Vite", "Webpack",
-    "Node", "Deno", "Bun", "npm", "yarn", "pip",
-    "Docker", "Kubernetes", "AWS", "GCP", "Azure",
-    "Linux", "macOS", "Windows", "Ubuntu", "CentOS",
-    "Nginx", "Apache", "Redis", "PostgreSQL", "MySQL", "MongoDB", "SQLite",
-    "Git", "GitHub", "GitLab", "CI", "CD",
-    "AI", "ML", "LLM", "GPT", "BERT", "Transformer",
-    "GPU", "CPU", "RAM", "SSD", "HDD",
-    "Ollama", "OpenAI", "Gemma", "Llama",
-    "SaaS", "PaaS", "IaaS", "IoT", "CRM", "ERP", "BI",
-    "OAuth", "JWT", "SAML", "LDAP",
-    "PDF", "DOCX", "XLSX", "PPTX",
-    "JIRA", "Slack", "Teams", "Zoom",
-})
+_IT_TERMS = frozenset(
+    {
+        "API",
+        "REST",
+        "GraphQL",
+        "SDK",
+        "CLI",
+        "GUI",
+        "IDE",
+        "HTTP",
+        "HTTPS",
+        "URL",
+        "URI",
+        "DNS",
+        "IP",
+        "TCP",
+        "UDP",
+        "SSH",
+        "SSL",
+        "TLS",
+        "JSON",
+        "XML",
+        "YAML",
+        "CSV",
+        "HTML",
+        "CSS",
+        "JavaScript",
+        "TypeScript",
+        "Python",
+        "Java",
+        "Ruby",
+        "Rust",
+        "Go",
+        "PHP",
+        "React",
+        "Vue",
+        "Angular",
+        "Next",
+        "Nuxt",
+        "Vite",
+        "Webpack",
+        "Node",
+        "Deno",
+        "Bun",
+        "npm",
+        "yarn",
+        "pip",
+        "Docker",
+        "Kubernetes",
+        "AWS",
+        "GCP",
+        "Azure",
+        "Linux",
+        "macOS",
+        "Windows",
+        "Ubuntu",
+        "CentOS",
+        "Nginx",
+        "Apache",
+        "Redis",
+        "PostgreSQL",
+        "MySQL",
+        "MongoDB",
+        "SQLite",
+        "Git",
+        "GitHub",
+        "GitLab",
+        "CI",
+        "CD",
+        "AI",
+        "ML",
+        "LLM",
+        "GPT",
+        "BERT",
+        "Transformer",
+        "GPU",
+        "CPU",
+        "RAM",
+        "SSD",
+        "HDD",
+        "Ollama",
+        "OpenAI",
+        "Gemma",
+        "Llama",
+        "SaaS",
+        "PaaS",
+        "IaaS",
+        "IoT",
+        "CRM",
+        "ERP",
+        "BI",
+        "OAuth",
+        "JWT",
+        "SAML",
+        "LDAP",
+        "PDF",
+        "DOCX",
+        "XLSX",
+        "PPTX",
+        "JIRA",
+        "Slack",
+        "Teams",
+        "Zoom",
+    }
+)
 
 # Medical terms that should remain in Latin/English across languages
-_MEDICAL_TERMS = frozenset({
-    "DNA", "RNA", "CT", "MRI", "ECG", "EEG", "ICU", "BMI",
-    "HIV", "AIDS", "COVID-19", "WHO", "FDA", "EMA", "CDC",
-})
+_MEDICAL_TERMS = frozenset(
+    {
+        "DNA",
+        "RNA",
+        "CT",
+        "MRI",
+        "ECG",
+        "EEG",
+        "ICU",
+        "BMI",
+        "HIV",
+        "AIDS",
+        "COVID-19",
+        "WHO",
+        "FDA",
+        "EMA",
+        "CDC",
+    }
+)
 
 # Finance acronyms
-_FINANCE_TERMS = frozenset({
-    "GDP", "ROI", "EBITDA", "KPI", "B2B", "B2C", "IPO", "ETF",
-    "USD", "EUR", "JPY", "VND", "GBP", "SWIFT", "IBAN",
-})
+_FINANCE_TERMS = frozenset(
+    {
+        "GDP",
+        "ROI",
+        "EBITDA",
+        "KPI",
+        "B2B",
+        "B2C",
+        "IPO",
+        "ETF",
+        "USD",
+        "EUR",
+        "JPY",
+        "VND",
+        "GBP",
+        "SWIFT",
+        "IBAN",
+    }
+)
 
 
 SUPPORTED_DOMAINS: dict[str, DomainProfile] = {
@@ -104,6 +220,7 @@ def get_domain(code: str | None) -> DomainProfile:
         return SUPPORTED_DOMAINS["general"]
     return SUPPORTED_DOMAINS.get(code.lower(), SUPPORTED_DOMAINS["general"])
 
+
 def list_supported_domains() -> dict:
     """List all supported domains for API/UI consumption."""
     # We assign an icon for each domain for the UI dropdown
@@ -113,15 +230,11 @@ def list_supported_domains() -> dict:
         "medical": "⚕️",
         "legal": "⚖️",
         "finance": "📈",
-        "marketing": "📢"
+        "marketing": "📢",
     }
-    
+
     domains_list = [
-        {
-            "code": p.code,
-            "name": p.name,
-            "icon": icons.get(p.code, "📁")
-        }
+        {"code": p.code, "name": p.name, "icon": icons.get(p.code, "📁")}
         for p in SUPPORTED_DOMAINS.values()
     ]
     return {"domains": domains_list}

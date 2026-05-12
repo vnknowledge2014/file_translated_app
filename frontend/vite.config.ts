@@ -9,5 +9,17 @@ export default defineConfig({
 			outdir: './src/lib/paraglide'
 		}),
 		sveltekit()
-	]
+	],
+	define: {
+		// @solana/web3.js uses Buffer (Node.js API) — polyfill for browser
+		'globalThis.Buffer': 'globalThis.Buffer',
+	},
+	resolve: {
+		alias: {
+			buffer: 'buffer/',
+		},
+	},
+	optimizeDeps: {
+		include: ['buffer'],
+	},
 });

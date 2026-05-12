@@ -2,18 +2,17 @@
 
 import logging
 import os
-import tempfile
 
 import uuid
 
-from fastapi import APIRouter, File, Form, UploadFile, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, UploadFile, Depends
+from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
 
 from app.agent.extractor import extract_document
 from app.agent.reconstructor import reconstruct_document, reconstruct_plaintext
-from app.agent.xliff import import_xliff, merge_xliff_into_segments, export_xliff
+from app.agent.xliff import import_xliff, merge_xliff_into_segments
 from app.config import settings
 from app.utils.file_detect import detect_file_type
 
@@ -45,18 +44,22 @@ async def import_xliff_route(
     if not file_type:
         return {"error": f"Unsupported file type: {safe_filename}"}
 
-    # Save files with UUID prefix to prevent cross-user overwrite
-    upload_dir = settings.UPLOAD_DIR
-    os.makedirs(upload_dir, exist_ok=True)
-    
+    from app.storage import storage
+
+    # Save files with UUID prefix to TEMP_DIR
+    temp_dir = settings.TEMP_DIR
+    os.makedirs(temp_dir, exist_ok=True)
+
     unique_prefix = uuid.uuid4().hex[:8]
 
-    original_path = os.path.join(upload_dir, f"{unique_prefix}_{safe_filename}")
+    original_path = os.path.join(temp_dir, f"{unique_prefix}_{safe_filename}")
     with open(original_path, "wb") as f:
         f.write(await original_file.read())
 
-    safe_xliff = (xliff_file.filename or "import.xlf").replace("/", "").replace("\\", "")
-    xliff_path = os.path.join(upload_dir, f"{unique_prefix}_{safe_xliff}")
+    safe_xliff = (
+        (xliff_file.filename or "import.xlf").replace("/", "").replace("\\", "")
+    )
+    xliff_path = os.path.join(temp_dir, f"{unique_prefix}_{safe_xliff}")
     with open(xliff_path, "wb") as f:
         f.write(await xliff_file.read())
 
@@ -68,20 +71,39 @@ async def import_xliff_route(
 
         base, ext = os.path.splitext(safe_filename)
         output_filename = f"{unique_prefix}_{base}_vi{ext}"
-        output_path = os.path.join(settings.OUTPUT_DIR, output_filename)
-        os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+        temp_output_path = os.path.join(temp_dir, output_filename)
 
         if file_type in ("txt", "md", "csv"):
-            reconstruct_plaintext(original_path, segments, output_path)
+            reconstruct_plaintext(original_path, segments, temp_output_path)
         else:
-            reconstruct_document(file_type, original_path, segments, output_path)
+            reconstruct_document(file_type, original_path, segments, temp_output_path)
 
-        return FileResponse(
-            output_path,
+        # Upload reconstructed file to MinIO
+        final_s3_uri = storage.upload_file(
+            storage.outputs_bucket, f"xliff_imports/{output_filename}", temp_output_path
+        )
+        logger.info(f"XLIFF import reconstructed → {final_s3_uri}")
+
+        # Stream back to user
+        return StreamingResponse(
+            storage.get_object_stream(
+                storage.outputs_bucket, f"xliff_imports/{output_filename}"
+            ),
             media_type="application/octet-stream",
-            filename=output_filename,
+            headers={"Content-Disposition": f'attachment; filename="{base}_vi{ext}"'},
         )
 
     except Exception as e:
         logger.error(f"XLIFF import failed: {e}", exc_info=True)
         return {"error": str(e)}
+    finally:
+        for p in [
+            original_path,
+            xliff_path,
+            temp_output_path if "temp_output_path" in locals() else None,
+        ]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass

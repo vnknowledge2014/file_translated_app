@@ -30,6 +30,7 @@ class ModelManager:
         """Ensure model is loaded and ready.
 
         If model is already loaded, this is a no-op.
+        For cloud providers (OpenAICompatClient), skip warm-up entirely.
         If a different model is loaded, triggers a model swap
         (Ollama handles unloading automatically with MAX_LOADED_MODELS=1).
 
@@ -38,6 +39,14 @@ class ModelManager:
         """
         if self.current_model == model_name:
             logger.debug(f"Model {model_name} already loaded, skipping")
+            return
+
+        # Cloud providers don't need warm-up
+        from app.llm.openai_compat import OpenAICompatClient
+
+        if isinstance(self.client, OpenAICompatClient):
+            self.current_model = model_name
+            logger.info(f"Cloud model set: {model_name} (no warm-up needed)")
             return
 
         logger.info(f"Loading model: {model_name} (was: {self.current_model})")

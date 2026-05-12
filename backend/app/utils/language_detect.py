@@ -19,8 +19,32 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from app.languages import LanguageProfile, get_language, SUPPORTED_LANGUAGES
+from app.languages import get_language, SUPPORTED_LANGUAGES
 from app.domains import get_domain
+
+try:
+    from fast_langdetect import detect as ft_detect
+
+    _HAS_FAST_LANGDETECT = True
+except ImportError:
+    _HAS_FAST_LANGDETECT = False
+
+
+def _fasttext_detect(text: str) -> tuple[str | None, float]:
+    """Detect language using fast-langdetect (FastText wrapper).
+
+    Returns:
+        Tuple of (lang_code, confidence). lang_code is None if unavailable.
+    """
+    if not _HAS_FAST_LANGDETECT or not text or len(text.strip()) < 3:
+        return None, 0.0
+    try:
+        result = ft_detect(text.replace("\n", " "), low_memory=True)
+        lang = result.get("lang", None)
+        score = result.get("score", 0.0)
+        return lang, score
+    except Exception:
+        return None, 0.0
 
 
 # Symbols that are commonly retained as visual markers and should NOT
@@ -47,20 +71,99 @@ _ENGLISH_TOKEN_RE = re.compile(
 
 # Common English stop-words that should NOT be treated as "technical terms to preserve".
 # These are functional words that are normally translated.
-_ENGLISH_STOP_WORDS = frozenset({
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-    "should", "may", "might", "must", "can", "could",
-    "and", "or", "but", "if", "then", "else", "when", "where", "how",
-    "what", "which", "who", "whom", "this", "that", "these", "those",
-    "it", "its", "he", "she", "we", "they", "you", "me", "him", "her",
-    "us", "them", "my", "your", "his", "our", "their",
-    "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
-    "into", "about", "between", "through", "after", "before",
-    "not", "no", "yes", "so", "than", "too", "very", "just", "also",
-    "up", "out", "off", "over", "under",
-})
-
+_ENGLISH_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "must",
+        "can",
+        "could",
+        "and",
+        "or",
+        "but",
+        "if",
+        "then",
+        "else",
+        "when",
+        "where",
+        "how",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "he",
+        "she",
+        "we",
+        "they",
+        "you",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "my",
+        "your",
+        "his",
+        "our",
+        "their",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "as",
+        "into",
+        "about",
+        "between",
+        "through",
+        "after",
+        "before",
+        "not",
+        "no",
+        "yes",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "also",
+        "up",
+        "out",
+        "off",
+        "over",
+        "under",
+    }
+)
 
 
 @lru_cache(maxsize=32)
@@ -93,12 +196,16 @@ def _strip_shared_symbols(text: str) -> str:
     return "".join(c for c in text if c not in _SHARED_SYMBOLS)
 
 
-def has_source_language(text: str | None, lang_code: str) -> bool:
+def has_source_language(
+    text: str | None, lang_code: str, target_lang: str | None = None
+) -> bool:
     """Return True if text contains characters from the specified source language.
 
     Args:
         text: Input string, may be None.
         lang_code: ISO 639-1 code of the source language to detect.
+                   If 'auto', returns False since we cannot reliably detect an unknown language.
+        target_lang: Optional target language code to prevent false positives when scripts match.
 
     Returns:
         True if any character from the source language is found.
@@ -106,8 +213,36 @@ def has_source_language(text: str | None, lang_code: str) -> bool:
     if not text:
         return False
 
+    # Auto-detect mode: skip leak detection if we still don't know
+    if lang_code == "auto":
+        return False
+
+    use_fasttext = False
+    try:
+        source_profile = get_language(lang_code)
+        if target_lang:
+            try:
+                target_profile = get_language(target_lang)
+                # If source and target share the same script (e.g. Latin), Regex blocks fail. Use FastText.
+                if source_profile.script == target_profile.script:
+                    use_fasttext = True
+                # If source is latin but target is not (e.g. EN -> JA), simple character detection
+                # causes false positives on acronyms and units (km, VND, SIM). Use FastText instead.
+                elif source_profile.script == "latin" and target_profile.script != "latin":
+                    use_fasttext = True
+            except ValueError:
+                pass
+    except ValueError:
+        return False
+
     stripped = _strip_shared_symbols(text.strip())
     if not stripped:
+        return False
+
+    if use_fasttext:
+        lang, conf = _fasttext_detect(stripped)
+        if lang and lang == lang_code and conf > 0.6:
+            return True
         return False
 
     regex = _build_char_regex(lang_code)
@@ -134,6 +269,12 @@ def detect_language(text: str | None) -> str | None:
     if not stripped:
         return None
 
+    # 1. Use fast-langdetect if available (highly accurate)
+    lang, conf = _fasttext_detect(stripped)
+    if lang and conf > 0.4:
+        return lang
+
+    # 2. Fallback to Unicode block analysis
     # Score each language by character hit count
     scores: dict[str, int] = {}
     for lang_code, profile in SUPPORTED_LANGUAGES.items():
@@ -208,7 +349,7 @@ def is_technical_term(term: str, domain_code: str | None = None) -> bool:
         True if the term should be preserved as-is in translation.
     """
     domain = get_domain(domain_code)
-    
+
     # If the domain doesn't preserve English terms generally, ONLY check explicit dictionary
     if not domain.preserve_english_terms:
         if term in domain.built_in_terms:

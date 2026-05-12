@@ -5,9 +5,8 @@ configuration security.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.auth import get_password_hash, verify_password, SECRET_KEY
+from app.auth import SECRET_KEY
 
 
 class TestFilenameSanitization:
@@ -80,37 +79,19 @@ class TestSecretKeyConfiguration:
 
     def test_secret_key_from_settings(self):
         from app.config import settings
+
         assert hasattr(settings, "SECRET_KEY")
         assert isinstance(settings.SECRET_KEY, str)
         assert len(settings.SECRET_KEY) > 10
 
     def test_embedding_model_from_settings(self):
         from app.config import settings
+
         assert hasattr(settings, "EMBEDDING_MODEL")
         assert isinstance(settings.EMBEDDING_MODEL, str)
 
     def test_auth_uses_settings_key(self):
         """Verify auth.py reads from settings, not hardcoded."""
         from app.config import settings
+
         assert SECRET_KEY == settings.SECRET_KEY
-
-
-class TestPasswordSecurity:
-    """Unit: Password handling edge cases."""
-
-    def test_unicode_password(self):
-        pw = "パスワード123"
-        h = get_password_hash(pw)
-        assert verify_password(pw, h)
-        assert not verify_password("wrong", h)
-
-    def test_long_password(self):
-        """bcrypt has a 72-byte limit, should not crash."""
-        pw = "a" * 72
-        h = get_password_hash(pw)
-        assert verify_password(pw, h)
-
-    def test_special_chars_password(self):
-        pw = "p@$$w0rd!#%^&*(){}[]"
-        h = get_password_hash(pw)
-        assert verify_password(pw, h)

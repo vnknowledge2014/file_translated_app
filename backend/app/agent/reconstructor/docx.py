@@ -14,7 +14,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from ._common import build_translation_map
-from ._ooxml import NS, preserve_xml_declaration, register_document_namespaces, replace_paragraph_runs
+from ._ooxml import (
+    NS,
+    preserve_xml_declaration,
+    register_document_namespaces,
+    replace_paragraph_runs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,8 @@ _DOCX_XML_PATTERNS = [
     "word/footer",
     "word/footnotes.xml",
     "word/endnotes.xml",
+    "word/comments.xml",
+    "word/commentsExtended.xml",
 ]
 
 

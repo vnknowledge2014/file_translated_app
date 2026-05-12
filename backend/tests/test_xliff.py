@@ -4,7 +4,6 @@ import os
 import tempfile
 import xml.etree.ElementTree as ET
 
-import pytest
 
 from app.agent.xliff import (
     export_xliff,
@@ -24,6 +23,7 @@ _NS_V21 = "urn:oasis:names:tc:xliff:document:2.1"
 # ═══════════════════════════════════════════════════════════════════
 # XLIFF 1.2 Export Tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestExportV12:
     def _export(self, segments, filename="test.docx", file_type="docx"):
@@ -120,6 +120,7 @@ class TestExportV12:
 # XLIFF 2.1 Export Tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestExportV21:
     def _export(self, segments, filename="test.docx", file_type="docx"):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -166,6 +167,7 @@ class TestExportV21:
 # Import + Roundtrip Tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestImportRoundtrip:
     def _roundtrip(self, segments, version="1.2"):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -176,8 +178,18 @@ class TestImportRoundtrip:
     def test_roundtrip_v12(self):
         """XLIFF 1.2: Export → Import → segments match."""
         original = [
-            {"text": "作成者", "translated_text": "Người tạo", "location": "p[0]", "type": "paragraph"},
-            {"text": "項目名", "translated_text": "Tên mục", "location": "p[1]", "type": "paragraph"},
+            {
+                "text": "作成者",
+                "translated_text": "Người tạo",
+                "location": "p[0]",
+                "type": "paragraph",
+            },
+            {
+                "text": "項目名",
+                "translated_text": "Tên mục",
+                "location": "p[1]",
+                "type": "paragraph",
+            },
         ]
         imported = self._roundtrip(original, version="1.2")
         assert len(imported) == 2
@@ -189,7 +201,12 @@ class TestImportRoundtrip:
     def test_roundtrip_v21(self):
         """XLIFF 2.1: Export → Import → segments match."""
         original = [
-            {"text": "作成者", "translated_text": "Người tạo", "location": "p[0]", "type": "paragraph"},
+            {
+                "text": "作成者",
+                "translated_text": "Người tạo",
+                "location": "p[0]",
+                "type": "paragraph",
+            },
         ]
         imported = self._roundtrip(original, version="2.1")
         assert len(imported) == 1
@@ -203,7 +220,9 @@ class TestImportRoundtrip:
             path = os.path.join(tmpdir, "test.xlf")
             export_xliff(
                 [{"text": "テスト", "translated_text": "Kiểm tra"}],
-                "test.docx", "docx", path,
+                "test.docx",
+                "docx",
+                path,
             )
             # Modify target in file
             tree = ET.parse(path)
@@ -220,6 +239,7 @@ class TestImportRoundtrip:
 # ═══════════════════════════════════════════════════════════════════
 # Version Detection Tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestVersionDetect:
     def test_detect_v12(self):
@@ -238,6 +258,7 @@ class TestVersionDetect:
 # ═══════════════════════════════════════════════════════════════════
 # Inline Tag Mapping Tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestInlineTagsV12:
     def test_paired_tag_to_xliff(self):
@@ -288,6 +309,7 @@ class TestInlineTagsV21:
 # ═══════════════════════════════════════════════════════════════════
 # Merge Tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestMergeXliff:
     def test_merge_basic(self):

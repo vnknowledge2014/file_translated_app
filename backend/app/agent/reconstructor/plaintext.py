@@ -23,14 +23,15 @@ logger = logging.getLogger(__name__)
 #  Algorithmic ASCII-box reshape (pure Python, no LLM)
 # ---------------------------------------------------------------------------
 
+
 def _box_top_re():
     """Regex matching a box top border like ┌───────┐."""
-    return re.compile(r'┌─+┐')
+    return re.compile(r"┌─+┐")
 
 
 def _box_bottom_re():
     """Regex matching a box bottom border like └───────┘ or └───┬───┘."""
-    return re.compile(r'└[─┬┴┼]+┘')
+    return re.compile(r"└[─┬┴┼]+┘")
 
 
 def _split_cells(line: str, num_boxes: int) -> list[str]:
@@ -40,26 +41,25 @@ def _split_cells(line: str, num_boxes: int) -> list[str]:
     Cells are matched by ORDER, not by column position, so this works
     even after inline replacement shifted │ positions.
     """
-    parts = line.split('│')
+    parts = line.split("│")
     n = len(parts) - 1  # number of │ characters
 
     if n >= 2 * num_boxes + 2:
         # Nested inside outer container — cells at indices 2, 4, …
         return [
-            parts[2 + 2 * i] if 2 + 2 * i < len(parts) else ''
-            for i in range(num_boxes)
+            parts[2 + 2 * i] if 2 + 2 * i < len(parts) else "" for i in range(num_boxes)
         ]
     if n >= 2 * num_boxes:
         # Not nested — cells at indices 1, 3, …
         return [
-            parts[1 + 2 * i] if 1 + 2 * i < len(parts) else ''
-            for i in range(num_boxes)
+            parts[1 + 2 * i] if 1 + 2 * i < len(parts) else "" for i in range(num_boxes)
         ]
-    return [''] * num_boxes
+    return [""] * num_boxes
 
 
-def _rebuild_border(line: str, matches, new_widths: list[int],
-                    left_ch: str, right_ch: str) -> str:
+def _rebuild_border(
+    line: str, matches, new_widths: list[int], left_ch: str, right_ch: str
+) -> str:
     """Rebuild a border line with new box widths.
 
     Preserves special characters (┬ ┴ ┼) inside bottom borders by
@@ -69,29 +69,28 @@ def _rebuild_border(line: str, matches, new_widths: list[int],
     prev_end = 0
 
     for i, m in enumerate(matches):
-        parts.append(line[prev_end:m.start()])
+        parts.append(line[prev_end : m.start()])
         inner = line[m.start() + 1 : m.end() - 1]
         new_w = new_widths[i]
 
         # Find special char (┬ ┴ ┼) in original inner border
-        special = next((ch for ch in inner if ch != '─'), None)
+        special = next((ch for ch in inner if ch != "─"), None)
         if special:
             center = new_w // 2
-            new_inner = '─' * center + special + '─' * (new_w - center - 1)
+            new_inner = "─" * center + special + "─" * (new_w - center - 1)
         else:
-            new_inner = '─' * new_w
+            new_inner = "─" * new_w
 
         parts.append(left_ch + new_inner + right_ch)
         prev_end = m.end()
 
     parts.append(line[prev_end:])
-    return ''.join(parts)
+    return "".join(parts)
 
 
-def _rebuild_cell_line(line: str, num_boxes: int,
-                       new_widths: list[int]) -> str:
+def _rebuild_cell_line(line: str, num_boxes: int, new_widths: list[int]) -> str:
     """Rebuild a content line with cells padded to new box widths."""
-    parts = line.split('│')
+    parts = line.split("│")
     n = len(parts) - 1
 
     if n >= 2 * num_boxes + 2:
@@ -106,12 +105,12 @@ def _rebuild_cell_line(line: str, num_boxes: int,
         if idx >= len(parts):
             break
         # Collapse multi-space runs left by per-token padding
-        content = re.sub(r'  +', ' ', parts[idx].strip())
+        content = re.sub(r"  +", " ", parts[idx].strip())
         vw = visual_width(content)
         pad = new_widths[bi] - vw
-        parts[idx] = ' ' + content + ' ' * max(0, pad - 1)
+        parts[idx] = " " + content + " " * max(0, pad - 1)
 
-    return '│'.join(parts)
+    return "│".join(parts)
 
 
 def _expand_containers(lines: list[str]) -> None:
@@ -123,13 +122,12 @@ def _expand_containers(lines: list[str]) -> None:
     """
     idx = 0
     while idx < len(lines):
-        stripped = lines[idx].rstrip('\n').strip()
+        stripped = lines[idx].rstrip("\n").strip()
         # Outer top border: starts with ┌, ends with ┐, no │ on same line
-        if (stripped.startswith('┌') and stripped.endswith('┐')
-                and '│' not in stripped):
+        if stripped.startswith("┌") and stripped.endswith("┐") and "│" not in stripped:
             for j in range(idx + 1, min(idx + 60, len(lines))):
-                s = lines[j].rstrip('\n').strip()
-                if s.startswith('└') and '┘' in s and '│' not in s:
+                s = lines[j].rstrip("\n").strip()
+                if s.startswith("└") and "┘" in s and "│" not in s:
                     _expand_one_container(lines, idx, j)
                     idx = j + 1
                     break
@@ -143,9 +141,9 @@ def _expand_one_container(lines: list[str], top: int, bottom: int) -> None:
     """Expand a single outer container to fit its widest inner line."""
     max_inner_vw = 0
     for k in range(top + 1, bottom):
-        raw = lines[k].rstrip('\n')
-        if raw.startswith('│') and '│' in raw[1:]:
-            inner = raw[1 : raw.rindex('│')]
+        raw = lines[k].rstrip("\n")
+        if raw.startswith("│") and "│" in raw[1:]:
+            inner = raw[1 : raw.rindex("│")]
             max_inner_vw = max(max_inner_vw, visual_width(inner))
     if max_inner_vw == 0:
         return
@@ -153,27 +151,27 @@ def _expand_one_container(lines: list[str], top: int, bottom: int) -> None:
     new_iw = max_inner_vw  # new inner width of outer container
 
     # --- Rebuild top border ┌─…─┐ ---
-    nl_top = '\n' if lines[top].endswith('\n') else ''
-    lines[top] = '┌' + '─' * new_iw + '┐' + nl_top
+    nl_top = "\n" if lines[top].endswith("\n") else ""
+    lines[top] = "┌" + "─" * new_iw + "┐" + nl_top
 
     # --- Rebuild bottom border └─…─┘ (preserve ┼/┬) ---
-    orig_bot = lines[bottom].rstrip('\n').strip()
+    orig_bot = lines[bottom].rstrip("\n").strip()
     inner_orig = orig_bot[1:-1]
     specials: dict[float, str] = {}
     for ci, ch in enumerate(inner_orig):
-        if ch != '─':
+        if ch != "─":
             specials[ci / max(len(inner_orig), 1)] = ch
 
     if specials:
-        inner_new = list('─' * new_iw)
+        inner_new = list("─" * new_iw)
         for rel, ch in specials.items():
             pos = min(int(rel * new_iw), new_iw - 1)
             inner_new[pos] = ch
-        nl_bot = '\n' if lines[bottom].endswith('\n') else ''
-        lines[bottom] = '└' + ''.join(inner_new) + '┘' + nl_bot
+        nl_bot = "\n" if lines[bottom].endswith("\n") else ""
+        lines[bottom] = "└" + "".join(inner_new) + "┘" + nl_bot
     else:
-        nl_bot = '\n' if lines[bottom].endswith('\n') else ''
-        lines[bottom] = '└' + '─' * new_iw + '┘' + nl_bot
+        nl_bot = "\n" if lines[bottom].endswith("\n") else ""
+        lines[bottom] = "└" + "─" * new_iw + "┘" + nl_bot
 
     # --- Expand wide inner boxes BEFORE padding ---
     # Must run before pad/trim so inner box content has correct pipe positions
@@ -181,17 +179,17 @@ def _expand_one_container(lines: list[str], top: int, bottom: int) -> None:
 
     # --- Pad/trim inner lines ---
     for k in range(top + 1, bottom):
-        raw = lines[k].rstrip('\n')
-        nl_k = '\n' if lines[k].endswith('\n') else ''
-        if raw.startswith('│') and '│' in raw[1:]:
-            last_pipe = raw.rindex('│')
+        raw = lines[k].rstrip("\n")
+        nl_k = "\n" if lines[k].endswith("\n") else ""
+        if raw.startswith("│") and "│" in raw[1:]:
+            last_pipe = raw.rindex("│")
             inner = raw[1:last_pipe]
             vw = visual_width(inner)
             pad = new_iw - vw
             if pad > 0:
-                lines[k] = '│' + inner + ' ' * pad + '│' + nl_k
+                lines[k] = "│" + inner + " " * pad + "│" + nl_k
             else:
-                lines[k] = '│' + inner + '│' + nl_k
+                lines[k] = "│" + inner + "│" + nl_k
 
 
 def _expand_wide_inner_boxes(
@@ -211,11 +209,11 @@ def _expand_wide_inner_boxes(
 
     k = top + 1
     while k < bottom:
-        raw = lines[k].rstrip('\n')
-        nl_k = '\n' if lines[k].endswith('\n') else ''
+        raw = lines[k].rstrip("\n")
+        nl_k = "\n" if lines[k].endswith("\n") else ""
 
         # Only process │-prefixed lines (inside container)
-        if not raw.startswith('│'):
+        if not raw.startswith("│"):
             k += 1
             continue
 
@@ -239,7 +237,7 @@ def _expand_wide_inner_boxes(
         # Calculate right_margin from the ORIGINAL line to maintain container width
         # Original line: │  ┌──...──┐    │
         # right_margin = chars between ┐ and outer │ (inclusive of trailing space)
-        outer_right = raw.rindex('│')
+        outer_right = raw.rindex("│")
         orig_right_margin = outer_right - m.end()  # chars between old ┐ and outer │
 
         # Target box inner width: fill from left_margin to right edge
@@ -259,7 +257,7 @@ def _expand_wide_inner_boxes(
         # Find matching bottom border
         bot_k = None
         for j in range(k + 1, min(k + 8, bottom)):
-            bots = list(bot_re.finditer(lines[j].rstrip('\n')))
+            bots = list(bot_re.finditer(lines[j].rstrip("\n")))
             if len(bots) == 1:
                 bot_k = j
                 break
@@ -268,55 +266,55 @@ def _expand_wide_inner_boxes(
             k += 1
             continue
 
-        trailing_spaces = ' ' * right_gap
+        trailing_spaces = " " * right_gap
 
         # --- Expand top border ---
-        before = raw[:m.start()]
-        new_top_border = '┌' + '─' * target_w + '┐'
-        lines[k] = before + new_top_border + trailing_spaces + '│' + nl_k
+        before = raw[: m.start()]
+        new_top_border = "┌" + "─" * target_w + "┐"
+        lines[k] = before + new_top_border + trailing_spaces + "│" + nl_k
 
         # --- Expand bottom border ---
-        bot_raw = lines[bot_k].rstrip('\n')
-        nl_b = '\n' if lines[bot_k].endswith('\n') else ''
+        bot_raw = lines[bot_k].rstrip("\n")
+        nl_b = "\n" if lines[bot_k].endswith("\n") else ""
         bot_m = list(bot_re.finditer(bot_raw))
         if bot_m:
             bm = bot_m[0]
-            before_b = bot_raw[:bm.start()]
-            new_bot_border = '└' + '─' * target_w + '┘'
-            lines[bot_k] = before_b + new_bot_border + trailing_spaces + '│' + nl_b
+            before_b = bot_raw[: bm.start()]
+            new_bot_border = "└" + "─" * target_w + "┘"
+            lines[bot_k] = before_b + new_bot_border + trailing_spaces + "│" + nl_b
 
         # --- Expand content lines between top and bottom ---
         for c in range(k + 1, bot_k):
-            c_raw = lines[c].rstrip('\n')
-            nl_c = '\n' if lines[c].endswith('\n') else ''
-            inner_pipes = [ii for ii, ch in enumerate(c_raw) if ch == '│']
+            c_raw = lines[c].rstrip("\n")
+            nl_c = "\n" if lines[c].endswith("\n") else ""
+            inner_pipes = [ii for ii, ch in enumerate(c_raw) if ch == "│"]
             if len(inner_pipes) >= 3:
                 inner_left = inner_pipes[1]
                 # Extract content between 2nd and 2nd-to-last │
                 # But after _expand_one_container, pipes may have shifted.
                 # Safer: take everything after inner_left│, strip trailing │+spaces+│
-                after_inner_left = c_raw[inner_left + 1:]
+                after_inner_left = c_raw[inner_left + 1 :]
                 # Remove trailing: │ spaces │
                 # Find the content by stripping from the right
                 stripped_right = after_inner_left.rstrip()
-                if stripped_right.endswith('│'):
+                if stripped_right.endswith("│"):
                     stripped_right = stripped_right[:-1]  # remove last │
                     stripped_right = stripped_right.rstrip()
-                    if stripped_right.endswith('│'):
+                    if stripped_right.endswith("│"):
                         stripped_right = stripped_right[:-1]  # remove 2nd last │
                 content_text = stripped_right.strip()
                 # Rebuild: center-pad to target_w (with 1 leading space)
                 content_vw = visual_width(content_text)
                 # Keep original leading whitespace pattern (centered)
                 # Find leading spaces in original content
-                orig_content = c_raw[inner_left + 1:]
+                orig_content = c_raw[inner_left + 1 :]
                 orig_leading = len(orig_content) - len(orig_content.lstrip())
-                leading = ' ' * orig_leading if orig_leading > 0 else ' '
+                leading = " " * orig_leading if orig_leading > 0 else " "
                 text_with_lead = leading + content_text
                 pad = target_w - visual_width(text_with_lead)
-                new_content = text_with_lead + ' ' * max(0, pad)
-                before_c = c_raw[:inner_left + 1]
-                lines[c] = before_c + new_content + '│' + trailing_spaces + '│' + nl_c
+                new_content = text_with_lead + " " * max(0, pad)
+                before_c = c_raw[: inner_left + 1]
+                lines[c] = before_c + new_content + "│" + trailing_spaces + "│" + nl_c
 
         k = bot_k + 1
         continue
@@ -352,41 +350,41 @@ def _align_connectors_below(
         return
 
     for k in range(source_line + 1, min(source_line + 15, len(lines))):
-        raw = lines[k].rstrip('\n')
-        nl = '\n' if lines[k].endswith('\n') else ''
+        raw = lines[k].rstrip("\n")
+        nl = "\n" if lines[k].endswith("\n") else ""
 
         # Stop at the next inner box top border (┌…┐ with │ margin)
-        if '┌' in raw and '┐' in raw:
+        if "┌" in raw and "┐" in raw:
             break
 
         stripped = raw.strip()
 
         # ---- Case 1 & 2: outer bottom border (└ … ┘) ----
-        if stripped.startswith('└') and stripped.endswith('┘'):
+        if stripped.startswith("└") and stripped.endswith("┘"):
             lead = len(raw) - len(raw.lstrip())
             old_inner = stripped[1:-1]
             # Need enough width for the rightmost ┼
             needed_inner = max(len(old_inner), max(new_cols) - lead)
-            new_inner = list('─' * needed_inner)
+            new_inner = list("─" * needed_inner)
 
             # Place ┼ at new positions
             for new_c in new_cols:
                 rel = new_c - lead - 1  # position inside └...┘
                 if 0 <= rel < needed_inner:
-                    new_inner[rel] = '┼'
+                    new_inner[rel] = "┼"
 
-            lines[k] = ' ' * lead + '└' + ''.join(new_inner) + '┘' + nl
+            lines[k] = " " * lead + "└" + "".join(new_inner) + "┘" + nl
             continue
 
         # Collect all │ ▼ characters and their positions
-        connectors = [(j, ch) for j, ch in enumerate(raw) if ch in '│▼']
+        connectors = [(j, ch) for j, ch in enumerate(raw) if ch in "│▼"]
         if not connectors:
             continue
 
         first_col = connectors[0][0]
 
         # ---- Case 3: inside container (first │ at column 0) ----
-        if first_col == 0 and raw.rstrip().endswith('│') and len(connectors) >= 3:
+        if first_col == 0 and raw.rstrip().endswith("│") and len(connectors) >= 3:
             inner_connectors = connectors[1:-1]  # exclude outer walls
             if len(inner_connectors) != len(old_cols):
                 continue
@@ -394,26 +392,26 @@ def _align_connectors_below(
             last_wall = connectors[-1][0]
             # Build new line: outer walls + inner connectors at new positions
             total_w = max(last_wall + 1, max(new_cols) + 2)
-            chars = list(' ' * total_w)
-            chars[0] = '│'  # left outer wall
+            chars = list(" " * total_w)
+            chars[0] = "│"  # left outer wall
             right_pos = max(last_wall, max(new_cols) + 2)
             if right_pos >= len(chars):
-                chars.extend([' '] * (right_pos - len(chars) + 1))
-            chars[right_pos] = '│'  # right outer wall
+                chars.extend([" "] * (right_pos - len(chars) + 1))
+            chars[right_pos] = "│"  # right outer wall
             for (_, ch), new_c in zip(inner_connectors, new_cols):
                 if 0 < new_c < len(chars):
                     chars[new_c] = ch
-            lines[k] = ''.join(chars).rstrip() + nl
+            lines[k] = "".join(chars).rstrip() + nl
             continue
 
         # ---- Case 4: freestanding (indented │ or ▼) ----
         if len(connectors) == len(old_cols):
             max_new = max(new_cols) + 1
-            chars = list(' ' * max_new)
+            chars = list(" " * max_new)
             for (_, ch), new_c in zip(connectors, new_cols):
                 if new_c < len(chars):
                     chars[new_c] = ch
-            lines[k] = ''.join(chars).rstrip() + nl
+            lines[k] = "".join(chars).rstrip() + nl
 
 
 def _algorithmic_reshape(block_lines: list[str]) -> list[str]:
@@ -445,8 +443,8 @@ def _algorithmic_reshape(block_lines: list[str]) -> list[str]:
 
         # Skip outer container borders (handled in Pass 2).
         # Outer tops start with ┌ (no leading │ margin).
-        stripped = lines[idx].rstrip('\n').strip()
-        if stripped.startswith('┌') and stripped.endswith('┐') and '│' not in stripped:
+        stripped = lines[idx].rstrip("\n").strip()
+        if stripped.startswith("┌") and stripped.endswith("┐") and "│" not in stripped:
             idx += 1
             continue
 
@@ -476,32 +474,22 @@ def _algorithmic_reshape(block_lines: list[str]) -> list[str]:
             for bi, cell in enumerate(cells):
                 max_cw[bi] = max(max_cw[bi], visual_width(cell.strip()))
 
-        new_widths = [
-            max(ow, cw + 2) for ow, cw in zip(orig_widths, max_cw)
-        ]
+        new_widths = [max(ow, cw + 2) for ow, cw in zip(orig_widths, max_cw)]
 
         if new_widths != orig_widths:
             # Record old ┬ positions before rebuild
-            old_t_cols = [
-                j for j, ch in enumerate(lines[bottom_idx]) if ch == '┬'
-            ]
+            old_t_cols = [j for j, ch in enumerate(lines[bottom_idx]) if ch == "┬"]
 
-            lines[idx] = _rebuild_border(
-                lines[idx], top_matches, new_widths, '┌', '┐'
-            )
+            lines[idx] = _rebuild_border(lines[idx], top_matches, new_widths, "┌", "┐")
             bot_matches = list(bot_re.finditer(lines[bottom_idx]))
             lines[bottom_idx] = _rebuild_border(
-                lines[bottom_idx], bot_matches, new_widths, '└', '┘'
+                lines[bottom_idx], bot_matches, new_widths, "└", "┘"
             )
             for ci in content_indices:
-                lines[ci] = _rebuild_cell_line(
-                    lines[ci], num_boxes, new_widths
-                )
+                lines[ci] = _rebuild_cell_line(lines[ci], num_boxes, new_widths)
 
             # Record new ┬ positions after rebuild
-            new_t_cols = [
-                j for j, ch in enumerate(lines[bottom_idx]) if ch == '┬'
-            ]
+            new_t_cols = [j for j, ch in enumerate(lines[bottom_idx]) if ch == "┬"]
 
             # Store mapping for Pass 3
             if old_t_cols and new_t_cols and old_t_cols != new_t_cols:
@@ -526,36 +514,35 @@ def _algorithmic_reshape(block_lines: list[str]) -> list[str]:
     # Per-token padding leaves gaps like "Đại lý       / Quản trị viên".
     # Only affects │…│ container lines that have NO box-drawing characters
     # (i.e. pure text, not box border/cell lines).
-    _box_chars = set('┌┐└┘─┬┼')
+    _box_chars = set("┌┐└┘─┬┼")
     for k in range(len(lines)):
-        raw = lines[k].rstrip('\n')
-        nl = '\n' if lines[k].endswith('\n') else ''
+        raw = lines[k].rstrip("\n")
+        nl = "\n" if lines[k].endswith("\n") else ""
         stripped = raw.strip()
-        if not (stripped.startswith('│') and stripped.endswith('│')):
+        if not (stripped.startswith("│") and stripped.endswith("│")):
             continue
-        inner = raw[raw.index('│') + 1 : raw.rindex('│')]
+        inner = raw[raw.index("│") + 1 : raw.rindex("│")]
         # Skip lines with box-drawing chars (borders, cells)
         if any(ch in _box_chars for ch in inner):
             continue
         # Also skip lines with inner │ (box cell separators)
-        if '│' in inner:
+        if "│" in inner:
             continue
         # Collapse non-leading multi-spaces
         lead_len = len(inner) - len(inner.lstrip())
         leading = inner[:lead_len]
         rest = inner[lead_len:]
-        collapsed = re.sub(r'  +', ' ', rest)
+        collapsed = re.sub(r"  +", " ", rest)
         if collapsed != rest:
             # Re-pad to maintain container width
             old_vw = visual_width(inner)
             new_content = leading + collapsed
             pad = old_vw - visual_width(new_content)
-            new_inner = new_content + ' ' * max(0, pad)
-            left_wall = raw[:raw.index('│')]
-            lines[k] = left_wall + '│' + new_inner + '│' + nl
+            new_inner = new_content + " " * max(0, pad)
+            left_wall = raw[: raw.index("│")]
+            lines[k] = left_wall + "│" + new_inner + "│" + nl
 
     return lines
-
 
 
 def _fix_viet_latin_spacing(text: str) -> str:
@@ -573,8 +560,8 @@ def _fix_viet_latin_spacing(text: str) -> str:
     # Pass 1: abbreviation boundary  (e.g. RAGTrò → RAG Trò)
     # Pattern: 2+ uppercase ASCII followed by uppercase+lowercase
     text = re.sub(
-        r'([A-Z]{2,})([A-Z][a-zà-ỹ])',
-        r'\1 \2',
+        r"([A-Z]{2,})([A-Z][a-zà-ỹ])",
+        r"\1 \2",
         text,
     )
 
@@ -587,7 +574,7 @@ def _fix_viet_latin_spacing(text: str) -> str:
             curr = text[i]
             nxt = text[i + 1]
 
-            if curr != ' ' and nxt != ' ':
+            if curr != " " and nxt != " ":
                 insert_space = False
 
                 # Case A: lowercase → ASCII uppercase/digit
@@ -632,10 +619,10 @@ def _fix_viet_latin_spacing(text: str) -> str:
                             insert_space = True
 
                 if insert_space:
-                    result.append(' ')
+                    result.append(" ")
         i += 1
 
-    return ''.join(result)
+    return "".join(result)
 
 
 # ── Visual width helpers for CJK diagram grid expansion ──
@@ -873,28 +860,20 @@ def reconstruct_plaintext(
                 vw_new = visual_width(vi_text)
 
                 # Calculate available space: original token width + trailing spaces
-                suffix = line[str_idx + len(jp_text):]
-                trailing_spaces = len(suffix) - len(suffix.lstrip(' '))
+                suffix = line[str_idx + len(jp_text) :]
+                trailing_spaces = len(suffix) - len(suffix.lstrip(" "))
                 available = vw_orig + trailing_spaces
 
                 if vw_new <= available:
                     # Fits: replace and pad with spaces
                     pad = available - vw_new
                     span_end = str_idx + len(jp_text) + trailing_spaces
-                    line = (
-                        line[:str_idx]
-                        + vi_text + " " * pad
-                        + line[span_end:]
-                    )
+                    line = line[:str_idx] + vi_text + " " * pad + line[span_end:]
                 else:
                     # Doesn't fit: replace and accept overflow
                     block_has_overflow = True
                     span_end = str_idx + len(jp_text) + trailing_spaces
-                    line = (
-                        line[:str_idx]
-                        + vi_text
-                        + line[span_end:]
-                    )
+                    line = line[:str_idx] + vi_text + line[span_end:]
 
                 replaced_count += 1
 
@@ -922,9 +901,13 @@ def reconstruct_plaintext(
             # Sort by JP text length descending to prevent shorter substrings
             # from corrupting longer matches (e.g., '管理' inside 'イベント管理')
             current_line = line
-            sorted_cells = sorted(table_cell_lookup[i], key=lambda x: len(x[0]), reverse=True)
+            sorted_cells = sorted(
+                table_cell_lookup[i], key=lambda x: len(x[0]), reverse=True
+            )
             for jp_cell, vi_cell in sorted_cells:
-                current_line = current_line.replace(jp_cell, _fix_viet_latin_spacing(vi_cell), 1)
+                current_line = current_line.replace(
+                    jp_cell, _fix_viet_latin_spacing(vi_cell), 1
+                )
             output_lines.append(current_line)
             replaced_count += 1
         elif i in body_lookup:
@@ -938,7 +921,9 @@ def reconstruct_plaintext(
                     prefix = md_prefix
                     break
 
-            translated = _fix_viet_latin_spacing(_strip_hallucinated_prefix(body_lookup[i], prefix))
+            translated = _fix_viet_latin_spacing(
+                _strip_hallucinated_prefix(body_lookup[i], prefix)
+            )
             output_lines.append(
                 " " * indent + (prefix + translated if prefix else translated) + "\n"
             )

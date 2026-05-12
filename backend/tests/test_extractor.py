@@ -137,9 +137,9 @@ class TestExtractXlsx:
             ws = wb.active
             ws["A1"] = "項目名"
             ws["B1"] = "説明"
-            ws["A2"] = 42          # Number — skip
+            ws["A2"] = 42  # Number — skip
             ws["B2"] = "テスト"
-            ws["C2"] = "English"   # No JP — skip
+            ws["C2"] = "English"  # No JP — skip
             path = os.path.join(tmpdir, "test.xlsx")
             wb.save(path)
 
@@ -221,7 +221,7 @@ class TestExtractPptx:
             prs = Presentation()
             for i in range(3):
                 slide = prs.slides.add_slide(prs.slide_layouts[0])
-                slide.shapes.title.text = f"スライド{i+1}"
+                slide.shapes.title.text = f"スライド{i + 1}"
             path = os.path.join(tmpdir, "multi.pptx")
             prs.save(path)
 

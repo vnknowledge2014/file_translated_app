@@ -4,7 +4,8 @@
 	"languageTags": [
 		"en",
 		"vi",
-		"ja"
+		"ja",
+		"zh"
 	],
 	"modules": [
 		"https://cdn.jsdelivr.net/npm/@inlang/plugin-json@4/dist/index.js"

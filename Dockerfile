@@ -6,7 +6,7 @@ WORKDIR /frontend
 
 # Copy package and install
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install --ignore-scripts
 
 # Copy source and build
 COPY frontend/ .
@@ -38,18 +38,21 @@ COPY backend/app/ /app/app/
 # Copy built frontend
 COPY --from=frontend-builder /frontend/build/ /app/frontend/
 
-# Create data directories
-RUN mkdir -p /data/uploads /data/output /data/temp /data/db
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser
 
-# Environment defaults
+# Create data directories (owned by appuser)
+RUN mkdir -p /data/temp \
+    && chown -R appuser:appuser /data
+
+# Switch to non-root user
+USER appuser
+
+# Environment defaults (only infrastructure settings that differ between Docker and local)
 ENV OLLAMA_URL=http://ollama:11434
-ENV MODEL=gemma4:e4b
-ENV DATABASE_URL=sqlite:///data/db/translations.db
-ENV UPLOAD_DIR=/data/uploads
-ENV OUTPUT_DIR=/data/output
+ENV LLM_BACKEND=ollama
 ENV TEMP_DIR=/data/temp
 ENV MAX_WORKERS=1
-ENV MAX_CONCURRENT_BATCHES=4
 
 EXPOSE 8000
 

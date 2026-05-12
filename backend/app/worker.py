@@ -7,6 +7,9 @@ Prevents OOM on 16GB RAM when multiple files are uploaded simultaneously.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -19,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class JobItem:
     """A queued translation job."""
+
     app: Any
     job_id: str
     file_path: str
@@ -29,6 +33,9 @@ class JobItem:
     domain: str = "general"
     source_lang: str = "ja"
     target_lang: str = "vi"
+    no_translate: bool = False
+    webhook_url: str | None = None
+    owner_id: str | None = None
 
 
 class WorkerPool:
@@ -68,13 +75,9 @@ class WorkerPool:
             return
         self._started = True
         for i in range(self.max_workers):
-            task = asyncio.create_task(
-                self._worker_loop(i), name=f"worker-{i}"
-            )
+            task = asyncio.create_task(self._worker_loop(i), name=f"worker-{i}")
             self._workers.append(task)
-        logger.info(
-            f"WorkerPool started with {self.max_workers} worker(s)"
-        )
+        logger.info(f"WorkerPool started with {self.max_workers} worker(s)")
 
     async def submit(self, job: JobItem) -> None:
         """Submit a job to the queue (non-blocking).
@@ -120,8 +123,7 @@ class WorkerPool:
             self._active_jobs.add(job.job_id)
             try:
                 logger.info(
-                    f"Worker-{worker_id} processing [{job.job_id}] "
-                    f"{job.filename}"
+                    f"Worker-{worker_id} processing [{job.job_id}] {job.filename}"
                 )
                 await self._run_pipeline(job)
             except Exception as e:
@@ -144,9 +146,27 @@ class WorkerPool:
         from app.agent.translator import Translator
         from app.ollama.model_manager import ModelManager
         from app.llm.factory import create_llm_client
-        from app.database import update_job_status, save_segments, get_all_glossary_terms
+        from app.llm.model_router import model_router
+        from app.database import (
+            update_job_status,
+            save_segments,
+            get_all_glossary_terms,
+        )
+        from app.storage import storage
+        from app.event_bus import event_bus, JobEvent
 
         app = job.app
+
+        # Resolve model for this specific language pair + domain
+        resolved_model = model_router.resolve(
+            source_lang=job.source_lang,
+            target_lang=job.target_lang,
+            domain=job.domain,
+        )
+        logger.info(
+            f"[{job.job_id}] Model resolved: {resolved_model} "
+            f"(pair: {job.source_lang}→{job.target_lang}, domain: {job.domain})"
+        )
 
         # Create fresh client per job (avoids shared state corruption)
         client = create_llm_client(
@@ -157,14 +177,22 @@ class WorkerPool:
         try:
             model_manager = ModelManager(client)
             translator = Translator(
-                client, settings.MODEL,
+                client,
+                resolved_model,
                 max_concurrent=settings.MAX_CONCURRENT_BATCHES,
             )
 
+            # Download file from S3 to TEMP_DIR
+            bucket, object_name = storage.parse_s3_uri(job.file_path)
+            temp_input_path = os.path.join(settings.TEMP_DIR, f"in_{object_name}")
+            storage.download_file(bucket, object_name, temp_input_path)
+
             # Build output path
             base, ext = os.path.splitext(job.filename)
-            output_filename = f"{base}_{settings.TARGET_LANG}{ext}"
-            output_path = os.path.join(settings.OUTPUT_DIR, output_filename)
+            output_filename = f"{base}_{job.target_lang}{ext}"
+            temp_output_path = os.path.join(
+                settings.TEMP_DIR, f"out_{object_name}_{job.target_lang}{ext}"
+            )
 
             # Progress callback
             _pending_progress: list[asyncio.Task] = []
@@ -174,9 +202,22 @@ class WorkerPool:
                     return
                 try:
                     await update_job_status(
-                        job.job_id, phase,
+                        job.job_id,
+                        phase,
                         progress=progress,
                         progress_message=message,
+                    )
+                    await event_bus.publish(
+                        JobEvent(
+                            job_id=job.job_id,
+                            owner_id=job.owner_id or "",
+                            event_type="progress",
+                            data={
+                                "progress": progress,
+                                "message": message,
+                                "status": phase,
+                            },
+                        )
                     )
                 except Exception:
                     pass
@@ -188,14 +229,14 @@ class WorkerPool:
             orchestrator = Orchestrator(
                 model_manager=model_manager,
                 translator=translator,
-                model=settings.MODEL,
+                model=resolved_model,
                 on_progress=_fire_progress,
             )
 
             # Fetch glossary terms for the active language pair and domain
             glossary_models = await get_all_glossary_terms(
-                source_lang=settings.SOURCE_LANG,
-                target_lang=settings.TARGET_LANG,
+                source_lang=job.source_lang,
+                target_lang=job.target_lang,
                 domain=job.domain,
             )
             glossary_dicts = [
@@ -208,12 +249,13 @@ class WorkerPool:
             ]
 
             result = await orchestrator.translate_file(
-                file_path=job.file_path,
+                file_path=temp_input_path,
                 file_type=job.file_type,
                 job_id=job.job_id,
-                output_path=output_path,
+                output_path=temp_output_path,
                 export_xliff_flag=job.export_xliff,
                 xliff_version=job.xliff_version,
+                no_translate=job.no_translate,
                 glossary=glossary_dicts,
                 domain_code=job.domain,
                 source_lang=job.source_lang,
@@ -233,48 +275,157 @@ class WorkerPool:
                 if result["status"] == "completed"
                 else result.get("error", "Lỗi")
             )
+
+            final_output_s3 = None
+            final_xliff_s3 = None
+
+            # If completed, upload output files to MinIO
+            if result["status"] == "completed":
+                if os.path.exists(temp_output_path):
+                    final_output_s3 = storage.upload_file(
+                        storage.outputs_bucket,
+                        f"{job.job_id}/{output_filename}",
+                        temp_output_path,
+                    )
+
+                xliff_path = result.get("xliff_path")
+                if xliff_path and os.path.exists(xliff_path):
+                    xliff_filename = os.path.basename(xliff_path)
+                    final_xliff_s3 = storage.upload_file(
+                        storage.outputs_bucket,
+                        f"{job.job_id}/{xliff_filename}",
+                        xliff_path,
+                    )
+
+            # Clean up temporary files
+            for p in [temp_input_path, temp_output_path, result.get("xliff_path")]:
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
             await update_job_status(
                 job.job_id,
                 status=result["status"],
                 progress=final_progress,
                 progress_message=final_msg,
-                output_path=result.get("output_path"),
-                xliff_path=result.get("xliff_path"),
+                output_path=final_output_s3,
+                xliff_path=final_xliff_s3,
                 segments_count=result.get("segments_count"),
                 duration_seconds=result.get("duration_seconds"),
                 error_message=result.get("error"),
             )
 
+            await event_bus.publish(
+                JobEvent(
+                    job_id=job.job_id,
+                    owner_id=job.owner_id or "",
+                    event_type=result["status"],  # "completed" or "failed"
+                    data={
+                        "progress": final_progress,
+                        "message": final_msg,
+                        "status": result["status"],
+                        "segments_count": result.get("segments_count"),
+                        "duration_seconds": result.get("duration_seconds"),
+                    },
+                )
+            )
+
             logger.info(f"[{job.job_id}] Pipeline finished: {result['status']}")
+
+            # ── Increment pages_used_month for the job owner ──
+            if result["status"] == "completed" and job.owner_id:
+                try:
+                    from app.database import db
+
+                    page_count = 1  # Each file = 1 page
+                    await db.query(
+                        "UPDATE type::record($uid) SET pages_used_month += $count",
+                        {"uid": job.owner_id, "count": page_count},
+                    )
+                    logger.info(
+                        f"[{job.job_id}] Incremented pages_used_month "
+                        f"by {page_count} for user {job.owner_id}"
+                    )
+                except Exception as usage_err:
+                    logger.warning(
+                        f"[{job.job_id}] Failed to update usage: {usage_err}"
+                    )
+
+            # Fire webhook if configured
+            await self._fire_webhook(job, result)
 
             # Save segments for Review Editor
             if result["status"] == "completed" and result.get("_segments"):
                 try:
-                    await save_segments(
-                        job.job_id, result["_segments"]
-                    )
+                    await save_segments(job.job_id, result["_segments"])
                     logger.info(
                         f"[{job.job_id}] Saved {len(result['_segments'])} "
                         f"segments for review"
                     )
                 except Exception as seg_err:
-                    logger.warning(
-                        f"[{job.job_id}] Failed to save segments: {seg_err}"
-                    )
+                    logger.warning(f"[{job.job_id}] Failed to save segments: {seg_err}")
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
-            logger.error(
-                f"[{job.job_id}] Pipeline crashed: {error_msg}", exc_info=True
-            )
+            logger.error(f"[{job.job_id}] Pipeline crashed: {error_msg}", exc_info=True)
             try:
                 await update_job_status(
-                    job.job_id, "failed",
+                    job.job_id,
+                    "failed",
                     error_message=error_msg[:500],
                 )
-            except Exception as db_err:
-                logger.critical(
-                    f"[{job.job_id}] CRITICAL: DB update failed: {db_err}"
+                # Fire webhook for failures too
+                await self._fire_webhook(
+                    job, {"status": "failed", "error": error_msg[:500]}
                 )
+            except Exception as db_err:
+                logger.critical(f"[{job.job_id}] CRITICAL: DB update failed: {db_err}")
         finally:
             await client.close()
+
+    async def _fire_webhook(self, job: JobItem, result: dict) -> None:
+        """Send webhook callback if configured.
+
+        Includes HMAC-SHA256 signature for verification.
+        """
+        if not job.webhook_url:
+            return
+
+        import httpx
+        from datetime import datetime, timezone
+
+        payload = {
+            "event": f"job.{result.get('status', 'unknown')}",
+            "job_id": job.job_id,
+            "filename": job.filename,
+            "status": result.get("status"),
+            "download_url": f"/api/download/{job.job_id}",
+            "segments_count": result.get("segments_count"),
+            "duration_seconds": result.get("duration_seconds"),
+            "error": result.get("error"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # HMAC signature using SECRET_KEY
+        payload_bytes = json.dumps(payload, sort_keys=True).encode()
+        signature = hmac.new(
+            settings.SECRET_KEY.encode(), payload_bytes, hashlib.sha256
+        ).hexdigest()
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-InfiTrans-Signature": f"sha256={signature}",
+            "X-InfiTrans-Event": payload["event"],
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(job.webhook_url, json=payload, headers=headers)
+                logger.info(
+                    f"[{job.job_id}] Webhook sent to {job.webhook_url}: "
+                    f"HTTP {resp.status_code}"
+                )
+        except Exception as e:
+            logger.warning(f"[{job.job_id}] Webhook failed: {e}")

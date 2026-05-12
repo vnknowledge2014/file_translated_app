@@ -3,6 +3,10 @@
     import { fetchGlossary, deleteGlossaryTerm, uploadGlossary } from '$lib/api';
     import { currentDomain, sourceLang, targetLang } from '$lib/stores/config';
     import { onMount } from 'svelte';
+    import IconFileText from '$lib/components/icons/IconFileText.svelte';
+    import IconUpload from '$lib/components/icons/IconUpload.svelte';
+    import { showToast } from '$lib/stores/toast';
+    import IconTrash from '$lib/components/icons/IconTrash.svelte';
 
     let terms: any[] = [];
     let replaceOld = true;
@@ -30,7 +34,7 @@
             await deleteGlossaryTerm(id);
             terms = terms.filter(t => t.id !== id);
         } catch (e) {
-            alert('Delete failed');
+            showToast('Delete failed', 'error');
         }
     }
 
@@ -43,14 +47,13 @@
         fd.append('replace', replaceOld.toString());
         fd.append('domain', $currentDomain);
         
-        // Let user know it's uploading by clearing and setting a temp state
         terms = [];
         try {
             const data = await uploadGlossary(fd);
-            alert(`Added ${data.added} terms.`);
+            showToast(`Added ${data.added} terms.`, 'success');
             loadTerms();
         } catch (err: any) {
-            alert('Upload failed: ' + err.message);
+            showToast('Upload failed: ' + err.message, 'error');
             loadTerms();
         } finally {
             target.value = '';
@@ -60,18 +63,21 @@
 
 <div class="glossary-section">
     <div class="glossary-header">
-        <h3>📖 {m.glossary_title()}</h3>
+        <h3><IconFileText size={18} color="var(--accent)" /> {m.glossary_title()}</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
-            <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 4px;">
-                <input type="checkbox" bind:checked={replaceOld}> {m.glossary_replace_old()}
+            <label class="toggle-row">
+                <span class="toggle-switch" class:on={replaceOld} on:click|preventDefault={() => replaceOld = !replaceOld}>
+                    <span class="toggle-knob"></span>
+                </span>
+                <span class="toggle-text">{m.glossary_replace_old()}</span>
             </label>
-            <button class="btn-xliff" on:click={() => fileInput.click()} style="margin:0;">
-                📤 {m.glossary_upload_csv()}
+            <button class="btn-upload" on:click={() => fileInput.click()}>
+                <IconUpload size={14} /> {m.glossary_upload_csv()}
             </button>
             <input type="file" bind:this={fileInput} accept=".csv" on:change={handleUpload} hidden>
         </div>
     </div>
-    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+    <p class="csv-hint">
         CSV Format: Column 1 (Source), Column 2 (Target), Column 3 (Context - Optional).
     </p>
 
@@ -79,7 +85,7 @@
         <table>
             <thead>
                 <tr>
-                    <th id="glossary-th-source">{$sourceLang.toUpperCase()} ({m.glossary_col_source()})</th>
+                    <th id="glossary-th-source">{$sourceLang === 'auto' ? 'SOURCE' : $sourceLang.toUpperCase()} ({m.glossary_col_source()})</th>
                     <th id="glossary-th-target">{$targetLang.toUpperCase()} ({m.glossary_col_target()})</th>
                     <th>{m.glossary_col_context()}</th>
                     <th style="width: 80px; text-align: center;">{m.glossary_col_action()}</th>
@@ -96,7 +102,7 @@
                             <td class="seg-context">{t.context || ''}</td>
                             <td style="text-align: center;">
                                 <button class="btn-delete" on:click={() => handleDelete(t.id)} title={m.glossary_delete()}>
-                                    🗑️
+                                    <IconTrash size={16} color="var(--danger)" />
                                 </button>
                             </td>
                         </tr>
@@ -110,11 +116,10 @@
 <style>
     .glossary-section {
         background: var(--bg-card);
-        border: 1px solid var(--border-glass);
+        border: 1px solid var(--border-subtle);
         border-radius: var(--radius);
         padding: 24px;
         margin-top: 32px;
-        backdrop-filter: blur(12px);
     }
 
     .glossary-header {
@@ -126,39 +131,96 @@
         gap: 12px;
     }
 
+    .glossary-header h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1rem;
+    }
+
+    .toggle-row {
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .toggle-switch {
+        width: 32px;
+        height: 18px;
+        border-radius: 9px;
+        background: var(--border);
+        position: relative;
+        cursor: pointer;
+        transition: background 0.2s ease;
+        flex-shrink: 0;
+    }
+
+    .toggle-switch.on {
+        background: var(--accent);
+    }
+
+    .toggle-knob {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.2s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .toggle-switch.on .toggle-knob {
+        transform: translateX(14px);
+    }
+
+    .toggle-text {
+        user-select: none;
+    }
+
+    .csv-hint {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+    }
+
     .table-container {
         overflow-x: auto;
         border-radius: var(--radius-sm);
-        border: 1px solid var(--border-glass);
+        border: 1px solid var(--border-subtle);
     }
 
     table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
     }
 
     th, td {
         padding: 12px 16px;
         text-align: left;
-        border-bottom: 1px solid var(--border-glass);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     th {
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--bg-elevated);
         color: var(--text-muted);
         font-weight: 600;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         letter-spacing: 0.5px;
         text-transform: uppercase;
     }
 
     tbody tr:hover {
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--bg-elevated);
     }
 
-    .seg-source { color: var(--accent-cyan); font-weight: 500; }
-    .seg-context { color: var(--text-muted); font-size: 0.85rem; }
+    .seg-source { color: var(--accent); font-weight: 500; }
+    .seg-context { color: var(--text-muted); font-size: 0.8rem; }
     
     .glossary-empty {
         text-align: center;
@@ -168,26 +230,36 @@
     }
 
     .btn-delete {
-        background: none; border: none; cursor: pointer;
-        opacity: 0.5; transition: opacity 0.2s;
-        font-size: 1.1rem;
+        background: none;
+        border: none;
+        cursor: pointer;
+        opacity: 0.5;
+        transition: opacity var(--transition-base);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
     }
 
     .btn-delete:hover { opacity: 1; }
 
-    .btn-xliff {
-        background: rgba(139, 92, 246, 0.1);
-        color: var(--accent-purple);
-        border: 1px solid rgba(139, 92, 246, 0.2);
+    .btn-upload {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--accent-muted);
+        color: var(--accent);
+        border: 1px solid rgba(20, 184, 166, 0.3);
         padding: 8px 16px;
-        border-radius: 8px;
-        font-size: 0.9rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.8rem;
         font-weight: 500;
+        font-family: inherit;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all var(--transition-base);
     }
 
-    .btn-xliff:hover {
-        background: rgba(139, 92, 246, 0.2);
+    .btn-upload:hover {
+        background: rgba(20, 184, 166, 0.2);
     }
 </style>

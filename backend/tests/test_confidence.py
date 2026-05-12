@@ -17,11 +17,17 @@ class TestScoreSegment:
         assert score_segment(seg) < 0.7
 
     def test_tags_preserved(self):
-        seg = {"text": "text<tag1>bold</tag1>more", "translated_text": "văn bản<tag1>đậm</tag1>thêm"}
+        seg = {
+            "text": "text<tag1>bold</tag1>more",
+            "translated_text": "văn bản<tag1>đậm</tag1>thêm",
+        }
         assert score_segment(seg) >= 0.85
 
     def test_length_anomaly_short(self):
-        seg = {"text": "これは非常に長いテキストです。翻訳してください。", "translated_text": "OK"}
+        seg = {
+            "text": "これは非常に長いテキストです。翻訳してください。",
+            "translated_text": "OK",
+        }
         assert score_segment(seg) < 0.85
 
     def test_length_anomaly_long(self):
@@ -65,7 +71,11 @@ class TestClassifySegments:
     def test_custom_thresholds(self):
         segs = [{"text": "テスト", "translated_text": "Kiểm tra"}]
         result = classify_segments(segs, high_threshold=0.99)
-        total = result["stats"]["high_count"] + result["stats"]["medium_count"] + result["stats"]["low_count"]
+        total = (
+            result["stats"]["high_count"]
+            + result["stats"]["medium_count"]
+            + result["stats"]["low_count"]
+        )
         assert total == 1
 
     def test_empty_segments(self):

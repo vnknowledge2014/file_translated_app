@@ -23,8 +23,12 @@ class LLMClient(ABC):
         prompt: str,
         system: str | None = None,
         images: list[str] | None = None,
-        temperature: float = 0.3,
+        temperature: float = 0.7,
         num_ctx: int = 8192,
+        think: bool | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        repeat_penalty: float | None = None,
     ) -> str:
         """Generate text completion.
 
@@ -42,11 +46,11 @@ class LLMClient(ABC):
     @abstractmethod
     async def generate_embedding(self, model: str, prompt: str) -> list[float]:
         """Generate vector embedding for text.
-        
+
         Args:
             model: Embedding model name.
             prompt: Text to embed.
-            
+
         Returns:
             List of floats.
         """

@@ -56,7 +56,7 @@ def replace_in_text(text: str, tmap: dict[str, str]) -> str | None:
 
     # Also try exact match after removing footnote markers [N]
     # (extractor skips footnote-only runs, so keys won't have them)
-    normalized = re.sub(r'\[\d+\]', '', stripped)
+    normalized = re.sub(r"\[\d+\]", "", stripped)
     if normalized != stripped and normalized in tmap:
         return tmap[normalized]
 
@@ -75,4 +75,3 @@ def replace_in_text(text: str, tmap: dict[str, str]) -> str | None:
         return working
 
     return None
-

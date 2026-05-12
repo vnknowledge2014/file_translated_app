@@ -1,265 +1,398 @@
 # Architecture Deep-Dive
 
-> Deterministic Extract → Translate → Reconstruct pipeline with multilingual support.
+> InfiTrans — Enterprise Document Translation Platform  
+> Deterministic Extract → Translate → Score → Review → Reconstruct Pipeline
 
 ---
 
-## System Overview
+## 1. System Overview
 
-```
-┌─── Deployment (Docker Compose) ──────────────────────────┐
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │  SvelteKit   │  │  FastAPI App │  │    Ollama      │  │
-│  │  Frontend    │  │  :8000       │  │    :11434      │  │
-│  │  (Static SPA)│─→│              │─→│                │  │
-│  │  Paraglide   │  │ Orchestrator │  │ gemma4:e4b     │  │
-│  │  i18n        │  │ Pipeline     │  │ (or custom)    │  │
-│  └──────────────┘  │              │  └────────────────┘  │
-│                    │ ┌─ SurrealDB ┐ │                      │
-│                    │ │ jobs       │ │                      │
-│                    │ │ glossary   │ │  ws://surrealdb      │
-│                    │ │ cache      │ │                      │
-│                    │ └────────────┘ │                      │
-│                    └────────────────┘                      │
-│                                                            │
-│  Volume: /data/                                            │
-│  ├── uploads/    (original files)                          │
-│  ├── output/     (translated files + .xlf bilingual)       │
-│  ├── temp/       (temporary files)                         │
-│  └── db/         (surrealdb persistent data)               │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Browser ["Client (Browser)"]
+        SPA["SvelteKit SPA<br/>Paraglide i18n<br/>Dark Glassmorphism"]
+    end
+
+    subgraph DC ["Docker Compose Stack"]
+        subgraph FastAPI ["FastAPI :8000"]
+            AUTH["Auth Module<br/>JWT + bcrypt"]
+            ROUTES["REST API<br/>12 Endpoints"]
+            SPA_SERVE["SPA Static Server<br/>Catch-all Fallback"]
+            WORKER["Worker Pool<br/>Bounded Async Queue"]
+        end
+
+        subgraph Pipeline ["Translation Pipeline"]
+            EXT["Extractor<br/>zipfile + xml.etree"]
+            TRANS["Translator<br/>Batch + Cache"]
+            SCORE["Confidence Scorer<br/>Multi-signal"]
+            RECON["Reconstructor<br/>ZIP Clone"]
+            PR["Prompt Router<br/>Context Engineering"]
+        end
+
+        subgraph Data ["Persistent Storage"]
+            SURREAL[("SurrealDB v2.1.4<br/>Jobs · Users · Glossary<br/>Translation Cache")]
+            MINIO[("MinIO S3<br/>Uploads · Outputs<br/>SSE-C Encryption")]
+        end
+    end
+
+    subgraph LLM ["LLM Engine (Host)"]
+        OLLAMA["Ollama :11434<br/>HY-MT1.5-1.8B<br/>demonbyron/HY-MT1.5-1.8B"]
+    end
+
+    SPA -->|JWT Bearer| ROUTES
+    ROUTES --> AUTH
+    ROUTES --> WORKER
+    WORKER --> EXT
+    EXT --> TRANS
+    TRANS -->|Prompt| PR
+    TRANS -->|HTTP /api/generate| OLLAMA
+    TRANS --> SCORE
+    SCORE --> RECON
+    ROUTES -->|CRUD| SURREAL
+    EXT -->|Read| MINIO
+    RECON -->|Write| MINIO
+    WORKER -->|Status Update| SURREAL
 ```
 
 ### Docker Build Pipeline
 
-The Dockerfile uses a **multi-stage build**:
+```mermaid
+graph LR
+    subgraph Stage1 ["Stage 1: node:22-slim"]
+        NPM["npm ci"] --> PARA["paraglide-js compile"]
+        PARA --> VITE["vite build"]
+        VITE --> BUILD["/frontend/build/"]
+    end
+
+    subgraph Stage2 ["Stage 2: python:3.13-slim"]
+        PIP["pip install"] --> COPY_BE["COPY backend/"]
+        COPY_BE --> COPY_FE["COPY --from=Stage1<br/>/frontend/build/"]
+        COPY_FE --> CMD["CMD uvicorn<br/>app.main:app"]
+    end
+
+    Stage1 --> Stage2
+```
+
+### Configuration Flow
 
 ```
-Stage 1: node:22-slim (frontend-builder)
-  ├── npm ci
-  ├── paraglide-js compile (i18n → JS modules)
-  └── vite build → /frontend/build/
-
-Stage 2: python:3.13-slim (production)
-  ├── pip install requirements.txt
-  ├── COPY backend/app/ → /app/app/
-  ├── COPY --from=frontend-builder /frontend/build/ → /app/frontend/
-  └── CMD uvicorn app.main:app
+Environment Variables  ─→  os.environ  ─→  config.py Settings singleton
+         ↑                                        ↓
+   docker-compose.yml                     All modules import
+   environment: block                     from app.config import settings
+         ↑
+   .env file (loaded by
+   custom _load_dotenv)
 ```
 
-### Configuration
-
-All settings are loaded from `.env` file and environment variables via a custom loader in `config.py` (no `python-dotenv` dependency). Priority: **env vars > `.env` file > defaults**.
-
-See `README.md` → Configuration section for the full settings table.
+Priority: **env vars > docker-compose environment > .env file > built-in defaults**
 
 ---
 
-## Frontend Architecture
+## 2. Frontend Architecture
 
 ### Technology Stack
 
 | Technology | Purpose |
 |:-----------|:--------|
-| **SvelteKit 2** | Component framework + routing |
+| **SvelteKit 2** | Component framework + file-based routing |
 | **Paraglide-JS** | Compiler-based i18n (type-safe, tree-shakeable) |
-| **adapter-static** | Builds SPA served by FastAPI |
+| **adapter-static** | Builds SPA for Docker serving |
 | **TypeScript** | Type-safe API client + stores |
+| **SVG Icon System** | Custom icon components (no emoji) |
 
-### Component Structure
+### Route Structure
 
-```
-src/
-├── lib/
-│   ├── components/
-│   │   ├── LanguageSwitcher.svelte   # 🌐 UI language toggle (EN/VI/JA)
-│   │   ├── LanguageBar.svelte        # Source/Target/Domain dropdowns
-│   │   ├── UploadZone.svelte         # Drag-drop with XLIFF options
-│   │   ├── JobCard.svelte            # Job progress + download
-│   │   ├── GlossaryTable.svelte      # Glossary CRUD
-│   │   └── BilingualEditor.svelte    # Segment review modal
-│   ├── stores/
-│   │   ├── config.ts                 # Language/domain state
-│   │   └── i18n.ts                   # Paraglide language bindings
-│   ├── api.ts                        # Centralized API client
-│   └── paraglide/                    # Auto-generated (do not edit)
-├── routes/
-│   ├── +layout.svelte                # Global layout + CSS variables
-│   ├── +layout.ts                    # Paraglide SSR config
-│   └── +page.svelte                  # Main page (composes all components)
-└── app.css                           # Design system (dark glassmorphism)
+```mermaid
+graph TD
+    ROOT["/"] --> MARKETING["(marketing)<br/>Landing Page<br/>SEO + Product Info"]
+    ROOT --> AUTH_GROUP["(auth)"]
+    ROOT --> APP_GROUP["(app)"]
+    
+    AUTH_GROUP --> LOGIN["/login"]
+    AUTH_GROUP --> REGISTER["/register"]
+    AUTH_GROUP --> FORGOT["/forgot-password"]
+    
+    APP_GROUP --> TRANSLATE["/translate<br/>Step 1: Configure<br/>Step 2: Upload<br/>Advanced Tools"]
 ```
 
-### i18n Workflow
+### Component Architecture
 
-UI translations are managed through a centralized Excel file:
-
+```mermaid
+graph TD
+    LAYOUT["+layout.svelte<br/>Navbar + Auth Guard"] --> PAGE["translate/+page.svelte"]
+    PAGE --> LANGBAR["LanguageBar<br/>Source / Target / Domain"]
+    PAGE --> UPLOAD["UploadZone<br/>Drag-Drop + Toggle"]
+    PAGE --> JOBS["JobCard ×N<br/>Progress + Download"]
+    PAGE --> ADV["Advanced Tools Panel"]
+    ADV --> GLOSS["GlossaryTable<br/>CRUD + CSV Upload"]
+    ADV --> XLIFF["XliffImport<br/>Upload + Reconstruct"]
+    PAGE --> EDITOR["BilingualEditor<br/>Segment Review Modal"]
+    LAYOUT --> SWITCHER["LanguageSwitcher<br/>EN / VI / JA"]
 ```
-ui_translations.xlsx  ──→  i18n_manager.py  ──→  messages/en.json
-                                                  messages/vi.json
-                                                  messages/ja.json
-```
-
-**Key decisions:**
-- **UI Language** (Paraglide) is decoupled from **Translation Languages** (backend API)
-- Message keys use underscore format (`header_title`) for valid JS identifiers
-- Paraglide compiles JSON → tree-shakeable JS modules at build time
 
 ### Design System
 
-Dark glassmorphism aesthetic using CSS custom properties:
+Dark glassmorphism with CSS custom properties:
 
 ```css
---bg-primary: #0a0f1c        /* Deep navy background */
---bg-glass: rgba(255,255,255,0.03)  /* Glass effect */
---accent-cyan: #06b6d4       /* Primary accent */
---accent-emerald: #10b981    /* Success/active states */
+--bg-primary: #0a0f1c        /* Deep navy */
+--bg-card: #111827            /* Card surface */
+--accent: #14b8a6             /* Teal primary */
+--accent-hover: #0d9488       /* Teal hover */
 --gradient-primary: linear-gradient(135deg, #667eea, #764ba2)
+--shadow-glow: 0 0 20px rgba(20, 184, 166, 0.15)
 ```
 
 ---
 
-## Translation Pipeline — Adaptive 5-Phase Architecture
-
-```
-Input File ──→ [EXTRACT] ──→ segments[] ──→ [TRANSLATE] ──→ [SCORE] ──→ [REVIEW] ──→ [RECONSTRUCT] ──→ Output File
-               XML Zip Scan   with text      LLM call      Confidence   Web Editor   Zip Clone       _vi.ext
-               No wrapper     originals      (Ollama)       0.0–1.0      or XLIFF     No corruption
-                                                │              │
-                                          cache lookup    HIGH → auto-approve
-                                       (translations.db)  LOW  → needs human edit
-```
-
-> **Note**: The SCORE and REVIEW phases are optional. In `--import-xliff` mode, the TRANSLATE phase is skipped entirely.
+## 3. Translation Pipeline — Detail
 
 ### Phase 1: EXTRACT (Deterministic)
 
-Each file type has a dedicated extractor that walks every text-bearing node:
+```mermaid
+flowchart LR
+    FILE["Input File<br/>.docx/.xlsx/.pptx"] --> ZIP["zipfile.ZipFile<br/>Read-only"]
+    ZIP --> XML["xml.etree<br/>Parse XML"]
+    XML --> WALK["Walk Paragraphs<br/>&lt;w:p&gt; / &lt;a:p&gt;"]
+    WALK --> TAG["Serialize Runs<br/>&lt;tag1&gt;text&lt;/tag1&gt;"]
+    TAG --> SEG["segments[]<br/>text + tag_map"]
+    
+    SEG --> DEDUP["Dedup<br/>Remove duplicates"]
+    DEDUP --> SPLIT["Split Long<br/>>400 chars"]
+    SPLIT --> LANG["Language Filter<br/>Auto-detect"]
+```
 
-| File Type | Traversal Strategy | Key Behavior |
-|:----------|:-------------------|:-------------|
-| DOCX / PPTX | `zipfile` XML parsing of `document.xml`, `slide*.xml`, `drawing*.xml` | Zero-loss parsing. Preserves macros/charts. Binds sibling Text Runs into unified tag chunks. |
-| XLSX | `zipfile` XML parsing of `xl/sharedStrings.xml` + `xl/worksheets/*.xml` + `xl/drawings/*.xml` | Extracts shared strings, inline strings, drawing text, and sheet names. |
-| TXT/MD | Line-by-line scan | Detects ASCII diagram blocks. Extracts JP tokens from diagrams separately. |
-| CSV | Cell-by-cell scan | Skips numeric/date cells |
+| File Type | Traversal | Key Behavior |
+|:----------|:----------|:-------------|
+| **DOCX** | `word/document.xml` + headers/footers/endnotes | Processes `<w:p>` paragraphs, aggregates `<w:r>` runs into tagged chunks |
+| **XLSX** | `xl/sharedStrings.xml` + worksheets + drawings | Shared strings, inline strings, drawing text, sheet names |
+| **PPTX** | `ppt/slides/slide*.xml` | Processes `<a:p>` paragraphs with `<a:r>` runs |
+| **TXT/MD** | Line-by-line scan | ASCII diagram detection + token extraction |
+| **CSV** | Cell-by-cell | Skips numeric/date cells |
 
-**Source Language Detection**: Auto-detection uses Unicode block analysis (Hiragana, Katakana, CJK, Arabic, Devanagari, Hangul, Thai, Cyrillic) to identify the source language when set to `auto`.
-
-**Tag Stripping & Long Segment Splitting** (in extractor):
-- Paragraphs with >8 inline tags (`MAX_INLINE_TAGS`) are stripped for plain-text translation
-- Segments exceeding 400 characters (`MAX_SEGMENT_CHARS`) are split at sentence boundaries
+**Auto-Detection**: Uses Unicode block analysis (Hiragana, Katakana, CJK, Arabic, Devanagari, Hangul, Thai, Cyrillic) to identify source language when set to `auto`.
 
 ### Phase 2: TRANSLATE (LLM)
 
+```mermaid
+flowchart TB
+    SEGS["segments[]"] --> CHUNK["chunk_segments()<br/>max_chars=3000<br/>max_segs=5"]
+    CHUNK --> BATCHES["batches[]"]
+    BATCHES --> SEM["asyncio.Semaphore<br/>MAX_CONCURRENT_BATCHES"]
+    
+    SEM --> B1["translate_batch()"]
+    SEM --> B2["translate_batch()"]
+    SEM --> BN["translate_batch()"]
+    
+    B1 --> CACHE{"Cache<br/>Lookup?"}
+    CACHE -->|Hit| RET["Return cached"]
+    CACHE -->|Miss| PROMPT["Build Prompt"]
+    
+    PROMPT --> ROUTER["Prompt Router<br/>base + source + target<br/>+ domain + format<br/>+ glossary"]
+    ROUTER --> OLLAMA["Ollama<br/>/api/generate"]
+    OLLAMA --> SPLIT["Split |||"]
+    
+    SPLIT --> V1{"Source<br/>Leak?"}
+    V1 -->|Yes| RETRY1["1-by-1 Retry"]
+    V1 -->|No| V2{"Tag<br/>Valid?"}
+    V2 -->|No| RALPH["RALPH Loop<br/>Retry with Warning"]
+    V2 -->|Yes| V3{"Count<br/>Match?"}
+    V3 -->|No| RETRY1
+    V3 -->|Yes| SAVE["Cache + Return"]
 ```
-segments[] ──→ chunk_segments(max_chars, max_segs)
-                    │
-                    ▼
-              batches[] ──→ asyncio.gather (semaphore)
-                                │
-                    ┌───────────┼───────────┐
-                    ▼           ▼           ▼
-               translate_batch() × N concurrent
-                    │
-                    ▼
-              cache lookup (SurrealDB cache)
-              ├─ hit  → return cached translation
-              └─ miss → build prompt + call Ollama
-                    │
-                    ▼
-              "text_A|||text_B"  ──→  Ollama /api/generate
-                    │
-              "dịch_A|||dịch_B"  ──→  split("|||")
-                    │
-                    ├─ source leak check ── fail ──→ 1-by-1 retry
-                    ├─ tag validation    ── fail ──→ RALPH Loop
-                    └─ count match       → cache result
+
+**Prompt Architecture** — dynamically assembled from 6 sources:
+
+| Source | Path | Purpose |
+|:-------|:-----|:--------|
+| Base instruction | (inline) | "Translate {source} → {target}" |
+| Source language rules | `prompts/skills/languages/source/{lang}.md` | Source-specific parsing guidance |
+| Target language rules | `prompts/skills/languages/target/{lang}.md` | Target-specific generation rules |
+| Domain rules | `prompts/skills/domains/{domain}.md` | Domain terminology/style |
+| Format rules | `prompts/rules/formats/{format}.md` | OOXML tag preservation rules |
+| Glossary terms | (from DB) | Mandatory translation pairs |
+
+**RALPH Loop** (Retry After Lost Prompt Hallucination): Regex validates `<tagX>` integrity. Failed segments retry 1-by-1 with cumulative warnings. Max: `TRANSLATION_MAX_RETRIES`.
+
+### Phase 3: SCORE (Confidence)
+
+| Signal | Penalty/Boost | Trigger |
+|:-------|:-------------|:--------|
+| Source Leak | -0.50 | Source language characters in output |
+| Tag Mismatch | -0.40 | Missing or hallucinated `<tagX>` markers |
+| Length Anomaly | -0.30 | Target/source ratio < 0.3 or > 3.0 |
+| Retry Penalty | -0.10/retry | Segments requiring RALPH retries |
+| Cache Boost | +0.20 | Previously validated translation |
+
+Classification: **HIGH** (≥ 0.85) → auto-approve · **MEDIUM** (0.60–0.85) → optional review · **LOW** (< 0.60) → needs review
+
+### Phase 4: REVIEW (Human-in-the-Loop)
+
+- **Web Editor**: Split-pane bilingual grid highlighting LOW/MEDIUM segments
+- **XLIFF Export**: Dual-version (1.2 + 2.1) for CAT tools (Trados, memoQ, OmegaT)
+- **CLI TUI**: `python scripts/cli.py review` for terminal-based review
+
+### Phase 5: RECONSTRUCT (Deterministic)
+
+```mermaid
+flowchart LR
+    ORIG["Original ZIP"] --> CLONE["Stream Clone<br/>zipfile"]
+    TMAP["Translation Map<br/>{original: translated}"] --> REPLACE["replace_paragraph_runs()"]
+    CLONE --> REPLACE
+    REPLACE --> DESER["deserialize_tags_to_xml()<br/>&lt;tagX&gt; → &lt;w:r&gt;"]
+    DESER --> FIX["_fix_run_boundaries()<br/>Vietnamese word spacing"]
+    FIX --> NS["preserve_xml_declaration()<br/>Original xmlns preserved"]
+    NS --> OUT["Output ZIP<br/>Format-preserved"]
 ```
-
-**Prompt Architecture**: The system prompt is dynamically assembled from:
-1. **Base translation instruction** (source → target)
-2. **Source language rules** (`prompts/skills/languages/source/{lang}.md`)
-3. **Target language rules** (`prompts/skills/languages/target/{lang}.md`)
-4. **Domain rules** (`prompts/skills/domains/{domain}.md`)
-5. **Format rules** (`prompts/rules/formats/{format}.md`)
-6. **Glossary terms** (user-defined mandatory translations)
-
-**RALPH Loop** (Retry After Lost Prompt Hallucination): When tag validation fails, segments are retried 1-by-1 with cumulative warning messages. Max attempts configurable via `TRANSLATION_MAX_RETRIES`.
-
-### Phase 3: RECONSTRUCT (Deterministic)
 
 | File Type | Strategy |
 |:----------|:---------|
-| DOCX / PPTX | Non-destructive `zipfile` stream clone. Deserializes `<tagX>` into inline XML runs. |
-| XLSX | Multi-strategy: workbook.xml regex surgery, formula ref updates, drawings via ET, sharedStrings with phonetic stripping, font patching, calcChain cleanup. |
-| TXT/MD | Line replacement with Markdown prefix preservation + ASCII diagram grid expansion. |
+| **DOCX/PPTX** | Non-destructive ZIP stream clone. Deserialize `<tagX>` → OOXML runs |
+| **XLSX** | Multi-strategy: workbook.xml regex surgery, formula ref updates, drawings via ET, sharedStrings with phonetic stripping |
+| **TXT/MD** | Line replacement with Markdown prefix preservation + ASCII diagram grid expansion |
 
 ---
 
-## XLIFF Bilingual Exchange Layer
+## 4. XLIFF Bilingual Exchange
 
 ### Dual-Version Support
 
-| Feature | XLIFF 1.2 (default) | XLIFF 2.1 |
-|:--------|:--------------------|:----------|
+| Feature | XLIFF 1.2 | XLIFF 2.1 |
+|:--------|:----------|:----------|
 | Segment element | `<trans-unit>` | `<unit>/<segment>` |
 | Inline tags | `<bpt>`/`<ept>`, `<x/>` | `<pc>`, `<ph/>` |
-| CAT compatibility | Universal (Trados, memoQ, OmegaT) | Partial |
+| CAT compatibility | Universal | Partial |
 
-### In-App Review Editor
+### Workflow
 
-- **Web Editor**: Split-pane grid highlighting LOW/MEDIUM segments with auto-save.
-- **CLI TUI**: `python cli.py review` for terminal-based review.
-- **Direct Reconstruction**: Edit segments and trigger rebuild without XLIFF roundtrip.
-
----
-
-## Confidence Scoring
-
-| Signal | Penalty | Trigger |
-|:-------|:--------|:--------|
-| Source Leak | -0.50 | Source language characters remaining in output |
-| Tag Mismatch | -0.40 | Missing or hallucinated `<tagX>` markers |
-| Length Anomaly | -0.30 | Target/source length ratio < 0.3 or > 3.0 |
-| Retry Penalty | -0.10/retry | Segments that required RALPH loop retries |
-| Cache Boost | +0.20 | Previously validated translation from cache |
-
-**Classification**: HIGH (≥ 0.85) → auto-approved, MEDIUM (0.60–0.85) → optional review, LOW (< 0.60) → needs review.
-
----
-
-## Data Model
-
-### Job Table
 ```
-jobs
-├── id (UUID hex, PK)
-├── filename, file_type, file_path
-├── source_lang, target_lang, domain
-├── output_path (nullable — set on completion)
-├── status: pending → extracting → translating → scoring → reconstructing → completed | failed
-├── progress (0.0–1.0), progress_message
-├── segments_count, duration_seconds
-├── created_at, updated_at
-└── → job_attempts (1:N)
-```
-
-### GlossaryTerm Table
-```
-glossary
-├── id (auto PK)
-├── source_term (unique), target_term, context
-└── created_at
+Document → Extract → Translate → Export XLIFF → Edit in CAT Tool → Import XLIFF → Reconstruct
+                                      ↓                                   ↑
+                              Bilingual .xlf file              Reviewed .xlf file
 ```
 
 ---
 
-## Security Notes
+## 5. Data Model
 
-- **No code generation** — the system never generates or executes arbitrary code
-- **No sandbox needed** — all extraction/reconstruction is hardcoded library traversal
-- **Air-gapped capable** — Ollama runs locally, no outbound network calls required
-- **Docker isolation** — app container has limited filesystem access via volume mounts
-- **Per-pipeline OllamaClient** — each job creates a fresh HTTP client to prevent state corruption
-- **Environment secrets** — `.env` file is gitignored; `.env.example` template committed without secrets
+```mermaid
+erDiagram
+    USER {
+        string id PK
+        string username UK
+        string hashed_password
+        string role
+    }
+    
+    JOBS {
+        string id PK
+        string filename
+        string file_type
+        string file_path
+        string output_path
+        string xliff_path
+        string source_lang
+        string target_lang
+        string domain
+        string status
+        float progress
+        string progress_message
+        int segments_count
+        float duration_seconds
+        string owner_id FK
+        datetime created_at
+    }
+    
+    GLOSSARY_TERM {
+        string id PK
+        string source_term UK
+        string target_term
+        string context
+        string owner_id FK
+        datetime created_at
+    }
+    
+    TRANSLATION_MEMORY {
+        string id PK
+        string source_text
+        string target_text
+        string source_lang
+        string target_lang
+        string domain
+        float score
+    }
+    
+    USER ||--o{ JOBS : "owns"
+    USER ||--o{ GLOSSARY_TERM : "owns"
+```
+
+**Job Status Flow:**
+```
+queued → extracting → translating → scoring → reconstructing → completed
+                                                              → failed
+```
+
+---
+
+## 6. Authentication & Authorization
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant A as FastAPI
+    participant DB as SurrealDB
+
+    U->>F: Login (username, password)
+    F->>A: POST /api/auth/login
+    A->>DB: SELECT user WHERE username=$u
+    DB-->>A: User record
+    A->>A: bcrypt.checkpw(password, hash)
+    A-->>F: JWT Token (7-day expiry)
+    F->>F: Store in localStorage
+    
+    Note over F,A: Subsequent requests
+    F->>A: GET /api/jobs + Authorization: Bearer {JWT}
+    A->>A: jwt.decode(token, SECRET_KEY)
+    A->>DB: Query with owner_id filter
+    DB-->>A: Results
+    A-->>F: Filtered response
+```
+
+- **Password Hashing**: Native `bcrypt` (no passlib) — `$2b$12$` format
+- **JWT Tokens**: HS256, 7-day expiry, signed with `SECRET_KEY`
+- **Owner Isolation**: Jobs and glossary filtered by `owner_id` — users only see their own data
+
+---
+
+## 7. Storage Architecture
+
+```mermaid
+graph TB
+    subgraph MinIO ["MinIO S3-Compatible Storage"]
+        UB["uploads/<br/>Original files"]
+        OB["outputs/<br/>Translated files + XLIFF"]
+    end
+    
+    subgraph Features ["Enterprise Features"]
+        RET["Auto-Retention<br/>FILE_RETENTION_DAYS=14"]
+        ENC["SSE-C Encryption<br/>AES-256 at rest<br/>(requires HTTPS)"]
+        LC["Lifecycle Rules<br/>Auto-expiry"]
+    end
+    
+    MinIO --> Features
+```
+
+---
+
+## 8. Performance Tuning
+
+| Setting | Default | Tuning Guide |
+|:--------|:--------|:-------------|
+| `MAX_CONCURRENT_BATCHES` | `2` | Increase for high-VRAM GPUs |
+| `BATCH_MAX_SEGMENTS` | `5` | Lower reduces mismatch risk |
+| `BATCH_MAX_CHARS` | `3000` | Tuned for 8K context window |
+| `MAX_WORKERS` | `1` | Parallel job processing |
+| `TRANSLATION_NUM_CTX` | `4096` | LLM context window |
+| `OLLAMA_THINK` | `false` | CoT mode — slower but better quality |

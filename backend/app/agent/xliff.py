@@ -32,6 +32,7 @@ _TAG_ANY_RE = re.compile(r"</?tag\d+/?>")
 
 # ── Inline Tag Conversion ──
 
+
 def _tags_to_xliff_v12(text: str) -> str:
     """Convert <tagN>text</tagN> to XLIFF 1.2 inline elements."""
     if not _TAG_ANY_RE.search(text):
@@ -40,7 +41,10 @@ def _tags_to_xliff_v12(text: str) -> str:
     for m in _SELF_CLOSING_TAG_RE.finditer(text):
         tag_name = m.group(1)
         tag_id = tag_name.replace("tag", "")
-        result = result.replace(m.group(0), f'<x id="{tag_id}" ctype="x-{tag_name}"/>', 1)
+        result = result.replace(
+            m.group(0), f'<x id="{tag_id}" ctype="x-{tag_name}"/>', 1
+        )
+
     def _replace_paired(m):
         tag_name = m.group(1)
         inner = m.group(2)
@@ -48,6 +52,7 @@ def _tags_to_xliff_v12(text: str) -> str:
         bpt = f'<bpt id="{tag_id}" ctype="x-{tag_name}">&lt;{tag_name}&gt;</bpt>'
         ept = f'<ept id="{tag_id}">&lt;/{tag_name}&gt;</ept>'
         return f"{bpt}{inner}{ept}"
+
     result = _PAIRED_TAG_RE.sub(_replace_paired, result)
     return result
 
@@ -57,11 +62,12 @@ def _xliff_v12_to_tags(text: str) -> str:
     if not text:
         return text
     result = text
-    result = re.sub(r'<x\s+id="(\d+)"[^/]*/>', lambda m: f'<tag{m.group(1)}/>', result)
+    result = re.sub(r'<x\s+id="(\d+)"[^/]*/>', lambda m: f"<tag{m.group(1)}/>", result)
     result = re.sub(
         r'<bpt\s+id="(\d+)"[^>]*>[^<]*</bpt>(.*?)<ept\s+id="\1">[^<]*</ept>',
-        lambda m: f'<tag{m.group(1)}>{m.group(2)}</tag{m.group(1)}>',
-        result, flags=re.DOTALL,
+        lambda m: f"<tag{m.group(1)}>{m.group(2)}</tag{m.group(1)}>",
+        result,
+        flags=re.DOTALL,
     )
     return result
 
@@ -75,11 +81,13 @@ def _tags_to_xliff_v21(text: str) -> str:
         tag_name = m.group(1)
         tag_id = tag_name.replace("tag", "")
         result = result.replace(m.group(0), f'<ph id="{tag_id}" type="other"/>', 1)
+
     def _replace_paired(m):
         tag_name = m.group(1)
         inner = m.group(2)
         tag_id = tag_name.replace("tag", "")
         return f'<pc id="{tag_id}" type="fmt">{inner}</pc>'
+
     result = _PAIRED_TAG_RE.sub(_replace_paired, result)
     return result
 
@@ -89,16 +97,18 @@ def _xliff_v21_to_tags(text: str) -> str:
     if not text:
         return text
     result = text
-    result = re.sub(r'<ph\s+id="(\d+)"[^/]*/>', lambda m: f'<tag{m.group(1)}/>', result)
+    result = re.sub(r'<ph\s+id="(\d+)"[^/]*/>', lambda m: f"<tag{m.group(1)}/>", result)
     result = re.sub(
         r'<pc\s+id="(\d+)"[^>]*>(.*?)</pc>',
-        lambda m: f'<tag{m.group(1)}>{m.group(2)}</tag{m.group(1)}>',
-        result, flags=re.DOTALL,
+        lambda m: f"<tag{m.group(1)}>{m.group(2)}</tag{m.group(1)}>",
+        result,
+        flags=re.DOTALL,
     )
     return result
 
 
 # ── Version Detection ──
+
 
 def detect_xliff_version(path: str) -> str:
     """Detect XLIFF version from file. Returns '1.2' or '2.1'."""
@@ -115,6 +125,7 @@ def detect_xliff_version(path: str) -> str:
 
 
 # ── Helpers ──
+
 
 def _state_for_segment(seg: dict) -> str:
     """Determine XLIFF state from segment data."""
@@ -186,28 +197,53 @@ def _read_notes(parent: ET.Element, seg: dict, ns: str):
 
 
 def _map_state_to_v21(state_v12: str) -> str:
-    return {"new": "initial", "needs-translation": "initial",
-            "translated": "translated", "needs-review-translation": "reviewed",
-            "final": "final", "signed-off": "final"}.get(state_v12, "initial")
+    return {
+        "new": "initial",
+        "needs-translation": "initial",
+        "translated": "translated",
+        "needs-review-translation": "reviewed",
+        "final": "final",
+        "signed-off": "final",
+    }.get(state_v12, "initial")
 
 
 def _map_state_from_v21(state_v21: str) -> str:
-    return {"initial": "new", "translated": "translated",
-            "reviewed": "needs-review-translation", "final": "final"}.get(state_v21, "new")
+    return {
+        "initial": "new",
+        "translated": "translated",
+        "reviewed": "needs-review-translation",
+        "final": "final",
+    }.get(state_v21, "new")
 
 
 # ── XLIFF 1.2 ──
 
-def _export_v12(segments, original_filename, file_type, output_path, source_lang, target_lang):
+
+def _export_v12(
+    segments, original_filename, file_type, output_path, source_lang, target_lang
+):
     ET.register_namespace("", _NS_V12)
     xliff = ET.Element("xliff", {"version": "1.2", "xmlns": _NS_V12})
-    file_el = ET.SubElement(xliff, "file", {
-        "original": original_filename, "source-language": source_lang,
-        "target-language": target_lang, "datatype": f"x-{file_type}",
-        "tool-id": "multilingual-translator",
-    })
+    file_el = ET.SubElement(
+        xliff,
+        "file",
+        {
+            "original": original_filename,
+            "source-language": source_lang,
+            "target-language": target_lang,
+            "datatype": f"x-{file_type}",
+            "tool-id": "multilingual-translator",
+        },
+    )
     header = ET.SubElement(file_el, "header")
-    ET.SubElement(header, "tool", {"tool-id": "multilingual-translator", "tool-name": "Multilingual Translation System"})
+    ET.SubElement(
+        header,
+        "tool",
+        {
+            "tool-id": "multilingual-translator",
+            "tool-name": "Multilingual Translation System",
+        },
+    )
     body = ET.SubElement(file_el, "body")
     for idx, seg in enumerate(segments):
         source_text = seg.get("text", "")
@@ -228,7 +264,9 @@ def _export_v12(segments, original_filename, file_type, output_path, source_lang
     tree = ET.ElementTree(xliff)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_path, encoding="UTF-8", xml_declaration=True)
-    logger.info(f"XLIFF 1.2 export: {len([s for s in segments if s.get('text','').strip()])} trans-units → {output_path}")
+    logger.info(
+        f"XLIFF 1.2 export: {len([s for s in segments if s.get('text', '').strip()])} trans-units → {output_path}"
+    )
     return output_path
 
 
@@ -239,9 +277,20 @@ def _import_v12(xliff_path):
     for tu in root.iter(f"{{{_NS_V12}}}trans-unit"):
         source_el = tu.find(f"{{{_NS_V12}}}source")
         target_el = tu.find(f"{{{_NS_V12}}}target")
-        source_text = _xliff_v12_to_tags(_get_mixed_content(source_el)) if source_el is not None else ""
-        target_text = _xliff_v12_to_tags(_get_mixed_content(target_el)) if target_el is not None else ""
-        seg = {"text": source_text, "translated_text": target_text if target_text.strip() else ""}
+        source_text = (
+            _xliff_v12_to_tags(_get_mixed_content(source_el))
+            if source_el is not None
+            else ""
+        )
+        target_text = (
+            _xliff_v12_to_tags(_get_mixed_content(target_el))
+            if target_el is not None
+            else ""
+        )
+        seg = {
+            "text": source_text,
+            "translated_text": target_text if target_text.strip() else "",
+        }
         if target_el is not None:
             state = target_el.get("state", "")
             if state:
@@ -254,9 +303,20 @@ def _import_v12(xliff_path):
 
 # ── XLIFF 2.1 ──
 
-def _export_v21(segments, original_filename, file_type, output_path, source_lang, target_lang):
+
+def _export_v21(
+    segments, original_filename, file_type, output_path, source_lang, target_lang
+):
     ET.register_namespace("", _NS_V21)
-    xliff = ET.Element("xliff", {"version": "2.1", "xmlns": _NS_V21, "srcLang": source_lang, "trgLang": target_lang})
+    xliff = ET.Element(
+        "xliff",
+        {
+            "version": "2.1",
+            "xmlns": _NS_V21,
+            "srcLang": source_lang,
+            "trgLang": target_lang,
+        },
+    )
     file_el = ET.SubElement(xliff, "file", {"id": "f1", "original": original_filename})
     for idx, seg in enumerate(segments):
         source_text = seg.get("text", "")
@@ -276,7 +336,9 @@ def _export_v21(segments, original_filename, file_type, output_path, source_lang
     tree = ET.ElementTree(xliff)
     ET.indent(tree, space="  ", level=0)
     tree.write(output_path, encoding="UTF-8", xml_declaration=True)
-    logger.info(f"XLIFF 2.1 export: {len([s for s in segments if s.get('text','').strip()])} units → {output_path}")
+    logger.info(
+        f"XLIFF 2.1 export: {len([s for s in segments if s.get('text', '').strip()])} units → {output_path}"
+    )
     return output_path
 
 
@@ -288,9 +350,20 @@ def _import_v21(xliff_path):
         for seg_el in unit.findall(f"{{{_NS_V21}}}segment"):
             source_el = seg_el.find(f"{{{_NS_V21}}}source")
             target_el = seg_el.find(f"{{{_NS_V21}}}target")
-            source_text = _xliff_v21_to_tags(_get_mixed_content(source_el)) if source_el is not None else ""
-            target_text = _xliff_v21_to_tags(_get_mixed_content(target_el)) if target_el is not None else ""
-            seg = {"text": source_text, "translated_text": target_text if target_text.strip() else ""}
+            source_text = (
+                _xliff_v21_to_tags(_get_mixed_content(source_el))
+                if source_el is not None
+                else ""
+            )
+            target_text = (
+                _xliff_v21_to_tags(_get_mixed_content(target_el))
+                if target_el is not None
+                else ""
+            )
+            seg = {
+                "text": source_text,
+                "translated_text": target_text if target_text.strip() else "",
+            }
             state = seg_el.get("state", "")
             if state:
                 seg["xliff_state"] = _map_state_from_v21(state)
@@ -302,8 +375,16 @@ def _import_v21(xliff_path):
 
 # ── Public API ──
 
-def export_xliff(segments, original_filename, file_type, output_path,
-                 source_lang=None, target_lang=None, version="1.2"):
+
+def export_xliff(
+    segments,
+    original_filename,
+    file_type,
+    output_path,
+    source_lang=None,
+    target_lang=None,
+    version="1.2",
+):
     """Export translated segments to XLIFF bilingual file.
 
     Args:
@@ -319,13 +400,23 @@ def export_xliff(segments, original_filename, file_type, output_path,
         Path to the written .xlf file.
     """
     from app.config import settings
+
     if source_lang is None:
         source_lang = settings.SOURCE_LANG
     if target_lang is None:
         target_lang = settings.TARGET_LANG
     if version.startswith("2"):
-        return _export_v21(segments, original_filename, file_type, output_path, source_lang, target_lang)
-    return _export_v12(segments, original_filename, file_type, output_path, source_lang, target_lang)
+        return _export_v21(
+            segments,
+            original_filename,
+            file_type,
+            output_path,
+            source_lang,
+            target_lang,
+        )
+    return _export_v12(
+        segments, original_filename, file_type, output_path, source_lang, target_lang
+    )
 
 
 def import_xliff(xliff_path):
@@ -354,5 +445,7 @@ def merge_xliff_into_segments(original_segments, xliff_segments):
         if source in xliff_map:
             seg["translated_text"] = xliff_map[source]
             merged_count += 1
-    logger.info(f"XLIFF merge: {merged_count}/{len(original_segments)} segments matched")
+    logger.info(
+        f"XLIFF merge: {merged_count}/{len(original_segments)} segments matched"
+    )
     return original_segments

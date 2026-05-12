@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 # ── Patterns to skip ──
 
 _SKIP_PATTERNS = [
-    re.compile(r"^https?://"),           # URLs
+    re.compile(r"^https?://"),  # URLs
     re.compile(r"^[a-zA-Z0-9._%+-]+@"),  # Emails
-    re.compile(r"^=\w+\("),              # Excel formulas
+    re.compile(r"^=\w+\("),  # Excel formulas
     re.compile(r"^[\d\s.,:%/+\-×÷()]+$"),  # Pure numbers/math
 ]
 
@@ -99,15 +99,15 @@ import xml.etree.ElementTree as ET
 
 # Namespaces map
 NS = {
-    'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
-    'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
 }
 
 # Footnote/citation marker pattern: only [N] with brackets required.
 # Old pattern ^\[?\d+\]?$ also matched standalone numbers (30, 1975, 177)
 # which dropped important numeric runs from paragraph text.
-_DOCX_FOOTNOTE_PAT = re.compile(r'^\[\d+\]$')
+_DOCX_FOOTNOTE_PAT = re.compile(r"^\[\d+\]$")
 
 # Max inline tags per segment before stripping tags for plain-text translation.
 # LLM reliably handles ≤8 tags but consistently fails tag validation at >8,
@@ -116,7 +116,7 @@ _MAX_INLINE_TAGS = settings.MAX_INLINE_TAGS
 
 # Max chars per segment before splitting at sentence boundaries
 _MAX_SEG_CHARS = settings.MAX_SEGMENT_CHARS
-_JP_SENTENCE_END = re.compile(r'(?<=[。！？])\s*')
+_JP_SENTENCE_END = re.compile(r"(?<=[。！？])\s*")
 
 
 def _split_long_segment(text: str, location: str, seg_type: str) -> list[dict]:
@@ -144,21 +144,40 @@ def _split_long_segment(text: str, location: str, seg_type: str) -> list[dict]:
         if not part:
             continue
         if current and len(current) + len(part) > _MAX_SEG_CHARS:
-            chunks.append({"text": current.strip(), "location": f"{location}[p{len(chunks)}]", "type": seg_type})
+            chunks.append(
+                {
+                    "text": current.strip(),
+                    "location": f"{location}[p{len(chunks)}]",
+                    "type": seg_type,
+                }
+            )
             current = part
         else:
             current += part
     if current.strip():
-        chunks.append({"text": current.strip(), "location": f"{location}[p{len(chunks)}]", "type": seg_type})
+        chunks.append(
+            {
+                "text": current.strip(),
+                "location": f"{location}[p{len(chunks)}]",
+                "type": seg_type,
+            }
+        )
 
-    return chunks if chunks else [{"text": text, "location": location, "type": seg_type}]
+    return (
+        chunks if chunks else [{"text": text, "location": location, "type": seg_type}]
+    )
 
 
 def extract_docx(file_path: str) -> list[dict]:
     """Extract all translatable text from a DOCX file using Native Zip XML parsing."""
     segments = []
-    with zipfile.ZipFile(file_path, 'r') as z:
-        for filename in [n for n in z.namelist() if n.startswith('word/') and n.endswith('.xml')]:
+    with zipfile.ZipFile(file_path, "r") as z:
+        for filename in [
+            n for n in z.namelist() if n.startswith("word/") and n.endswith(".xml")
+        ]:
+            # Skip relationship files — they don't contain document text
+            if "/_rels/" in filename:
+                continue
             try:
                 root = ET.fromstring(z.read(filename))
 
@@ -173,18 +192,18 @@ def extract_docx(file_path: str) -> list[dict]:
                 for p_idx, p in enumerate(root.iter(f"{{{NS['w']}}}p")):
                     runs = []
                     tag_idx = 1
-                    for r in p.findall('w:r', NS):
+                    for r in p.findall("w:r", NS):
                         # Skip runs inside hyperlinks (citation anchors)
                         if id(r) in hyperlink_run_ids:
                             continue
-                        t = r.find('w:t', NS)
+                        t = r.find("w:t", NS)
                         if t is not None and t.text:
                             text = t.text
                             # Skip standalone footnote/citation markers: [1], [2]
                             if _DOCX_FOOTNOTE_PAT.match(text.strip()):
                                 continue
                             # Rich formatting preservation
-                            if r.find('w:rPr', NS) is not None:
+                            if r.find("w:rPr", NS) is not None:
                                 runs.append(f"<tag{tag_idx}>{text}</tag{tag_idx}>")
                                 tag_idx += 1
                             else:
@@ -192,28 +211,28 @@ def extract_docx(file_path: str) -> list[dict]:
 
                     full_text = "".join(runs).strip()
                     if full_text and _is_translatable(full_text):
-                        tag_count = len(re.findall(r'</?tag\d+>', full_text))
+                        tag_count = len(re.findall(r"</?tag\d+>", full_text))
                         location = f"{filename}:p[{p_idx}]"
 
                         if tag_count > _MAX_INLINE_TAGS:
                             # Too many tags → LLM will fail tag validation.
                             # Strip tags and split at sentence boundaries
                             # so each chunk is <400 chars and cache-stable.
-                            plain = re.sub(r'</?tag\d+>', '', full_text)
+                            plain = re.sub(r"</?tag\d+>", "", full_text)
                             logger.info(
                                 f"Stripped {tag_count} tags from paragraph "
                                 f"({len(plain)} chars) at extraction time."
                             )
-                            chunks = _split_long_segment(
-                                plain, location, "body"
-                            )
+                            chunks = _split_long_segment(plain, location, "body")
                             segments.extend(chunks)
                         else:
-                            segments.append({
-                                "text": full_text,
-                                "location": location,
-                                "type": "body",
-                            })
+                            segments.append(
+                                {
+                                    "text": full_text,
+                                    "location": location,
+                                    "type": "body",
+                                }
+                            )
             except ET.ParseError:
                 pass
 
@@ -228,103 +247,158 @@ def extract_docx(file_path: str) -> list[dict]:
 def extract_xlsx(file_path: str) -> list[dict]:
     """Extract all translatable text from an XLSX file using Native Zip XML parsing."""
     segments = []
-    with zipfile.ZipFile(file_path, 'r') as z:
+    with zipfile.ZipFile(file_path, "r") as z:
         # --- 1. Extract sheet names from workbook.xml ---
-        if 'xl/workbook.xml' in z.namelist():
+        if "xl/workbook.xml" in z.namelist():
             try:
-                root = ET.fromstring(z.read('xl/workbook.xml'))
+                root = ET.fromstring(z.read("xl/workbook.xml"))
                 for idx, sheet in enumerate(root.iter(f"{{{NS['main']}}}sheet")):
-                    name = sheet.get('name', '')
+                    name = sheet.get("name", "")
                     if name and _is_translatable(name):
-                        segments.append({
-                            "text": name,
-                            "location": f"xl/workbook.xml:sheet[{idx}]",
-                            "type": "sheet_name"
-                        })
+                        segments.append(
+                            {
+                                "text": name,
+                                "location": f"xl/workbook.xml:sheet[{idx}]",
+                                "type": "sheet_name",
+                            }
+                        )
             except ET.ParseError:
                 pass
 
-        # --- 2. Extract text from sharedStrings + worksheets + drawings ---
-        target_files = [n for n in z.namelist() if n == 'xl/sharedStrings.xml' or n.startswith('xl/drawings/') or (n.startswith('xl/worksheets/') and n.endswith('.xml'))]
+        # --- 2. Extract text from sharedStrings + worksheets + drawings + comments ---
+        target_files = [
+            n
+            for n in z.namelist()
+            if n == "xl/sharedStrings.xml"
+            or n.startswith("xl/drawings/")
+            or n.startswith("xl/comments")
+            or (n.startswith("xl/worksheets/") and n.endswith(".xml"))
+        ]
         for filename in target_files:
             try:
                 root = ET.fromstring(z.read(filename))
-                
-                if filename == 'xl/sharedStrings.xml':
-                    for idx, si in enumerate(root.findall('main:si', NS)):
+
+                if filename == "xl/sharedStrings.xml":
+                    for idx, si in enumerate(root.findall("main:si", NS)):
                         runs = []
-                        t = si.find('main:t', NS)
+                        t = si.find("main:t", NS)
                         if t is not None and t.text:
                             runs.append(t.text)
-                        
+
                         tag_idx = 1
-                        for r in si.findall('main:r', NS):
-                            rt = r.find('main:t', NS)
+                        for r in si.findall("main:r", NS):
+                            rt = r.find("main:t", NS)
                             if rt is not None and rt.text:
                                 # In xlsx, rich text wraps <r><t>text</t></r>
-                                if r.find('main:rPr', NS) is not None:
-                                    runs.append(f"<tag{tag_idx}>{rt.text}</tag{tag_idx}>")
+                                if r.find("main:rPr", NS) is not None:
+                                    runs.append(
+                                        f"<tag{tag_idx}>{rt.text}</tag{tag_idx}>"
+                                    )
                                     tag_idx += 1
                                 else:
                                     runs.append(rt.text)
-                                    
+
                         full_text = "".join(runs).strip()
                         if full_text and _is_translatable(full_text):
-                            segments.append({
-                                "text": full_text,
-                                "location": f"{filename}:si[{idx}]",
-                                "type": "body"
-                            })
-                            
-                elif filename.startswith('xl/worksheets/') and filename.endswith('.xml'):
+                            segments.append(
+                                {
+                                    "text": full_text,
+                                    "location": f"{filename}:si[{idx}]",
+                                    "type": "body",
+                                }
+                            )
+
+                elif filename.startswith("xl/worksheets/") and filename.endswith(
+                    ".xml"
+                ):
                     for idx, c in enumerate(root.iter(f"{{{NS['main']}}}c")):
-                        if c.get('t') == 'inlineStr':
-                            is_node = c.find('main:is', NS)
+                        if c.get("t") == "inlineStr":
+                            is_node = c.find("main:is", NS)
                             if is_node is not None:
                                 runs = []
-                                t = is_node.find('main:t', NS)
+                                t = is_node.find("main:t", NS)
                                 if t is not None and t.text:
                                     runs.append(t.text)
-                                    
+
                                 tag_idx = 1
-                                for r in is_node.findall('main:r', NS):
-                                    rt = r.find('main:t', NS)
+                                for r in is_node.findall("main:r", NS):
+                                    rt = r.find("main:t", NS)
                                     if rt is not None and rt.text:
-                                        if r.find('main:rPr', NS) is not None:
-                                            runs.append(f"<tag{tag_idx}>{rt.text}</tag{tag_idx}>")
+                                        if r.find("main:rPr", NS) is not None:
+                                            runs.append(
+                                                f"<tag{tag_idx}>{rt.text}</tag{tag_idx}>"
+                                            )
                                             tag_idx += 1
                                         else:
                                             runs.append(rt.text)
-                                            
+
                                 full_text = "".join(runs).strip()
                                 if full_text and _is_translatable(full_text):
-                                    segments.append({
-                                        "text": full_text,
-                                        "location": f"{filename}:is[{idx}]",
-                                        "type": "body"
-                                    })
+                                    segments.append(
+                                        {
+                                            "text": full_text,
+                                            "location": f"{filename}:is[{idx}]",
+                                            "type": "body",
+                                        }
+                                    )
 
-                            
-                elif filename.startswith('xl/drawings/'):
+                elif filename.startswith("xl/drawings/"):
                     for p_idx, p in enumerate(root.iter(f"{{{NS['a']}}}p")):
                         runs = []
                         tag_idx = 1
-                        for r in p.findall('a:r', NS):
-                            t = r.find('a:t', NS)
+                        for r in p.findall("a:r", NS):
+                            t = r.find("a:t", NS)
                             if t is not None and t.text:
-                                if r.find('a:rPr', NS) is not None:
-                                    runs.append(f"<tag{tag_idx}>{t.text}</tag{tag_idx}>")
+                                if r.find("a:rPr", NS) is not None:
+                                    runs.append(
+                                        f"<tag{tag_idx}>{t.text}</tag{tag_idx}>"
+                                    )
                                     tag_idx += 1
                                 else:
                                     runs.append(t.text)
-                                    
+
                         full_text = "".join(runs).strip()
                         if full_text and _is_translatable(full_text):
-                            segments.append({
-                                "text": full_text,
-                                "location": f"{filename}:p[{p_idx}]",
-                                "type": "drawing"
-                            })
+                            segments.append(
+                                {
+                                    "text": full_text,
+                                    "location": f"{filename}:p[{p_idx}]",
+                                    "type": "drawing",
+                                }
+                            )
+
+                # --- XLSX Comments (xl/comments*.xml) ---
+                elif filename.startswith("xl/comments"):
+                    # Comments use <text> elements with <r><t> runs
+                    text_tag = f"{{{NS['main']}}}text"
+                    for t_idx, text_elem in enumerate(root.iter(text_tag)):
+                        runs = []
+                        # Direct <t> child
+                        t = text_elem.find("main:t", NS)
+                        if t is not None and t.text:
+                            runs.append(t.text)
+                        # Rich text <r><t> children
+                        tag_idx = 1
+                        for r in text_elem.findall("main:r", NS):
+                            rt = r.find("main:t", NS)
+                            if rt is not None and rt.text:
+                                if r.find("main:rPr", NS) is not None:
+                                    runs.append(
+                                        f"<tag{tag_idx}>{rt.text}</tag{tag_idx}>"
+                                    )
+                                    tag_idx += 1
+                                else:
+                                    runs.append(rt.text)
+                        full_text = "".join(runs).strip()
+                        if full_text and _is_translatable(full_text):
+                            segments.append(
+                                {
+                                    "text": full_text,
+                                    "location": f"{filename}:text[{t_idx}]",
+                                    "type": "comment",
+                                }
+                            )
+
             except ET.ParseError:
                 pass
 
@@ -339,29 +413,33 @@ def extract_xlsx(file_path: str) -> list[dict]:
 def extract_pptx(file_path: str) -> list[dict]:
     """Extract all translatable text from a PPTX file using Native Zip XML parsing."""
     segments = []
-    with zipfile.ZipFile(file_path, 'r') as z:
-        for filename in [n for n in z.namelist() if n.startswith('ppt/') and n.endswith('.xml')]:
+    with zipfile.ZipFile(file_path, "r") as z:
+        for filename in [
+            n for n in z.namelist() if n.startswith("ppt/") and n.endswith(".xml")
+        ]:
             try:
                 root = ET.fromstring(z.read(filename))
                 for p_idx, p in enumerate(root.iter(f"{{{NS['a']}}}p")):
                     runs = []
                     tag_idx = 1
-                    for r in p.findall('a:r', NS):
-                        t = r.find('a:t', NS)
+                    for r in p.findall("a:r", NS):
+                        t = r.find("a:t", NS)
                         if t is not None and t.text:
-                            if r.find('a:rPr', NS) is not None:
+                            if r.find("a:rPr", NS) is not None:
                                 runs.append(f"<tag{tag_idx}>{t.text}</tag{tag_idx}>")
                                 tag_idx += 1
                             else:
                                 runs.append(t.text)
-                                
+
                     full_text = "".join(runs).strip()
                     if full_text and _is_translatable(full_text):
-                        segments.append({
-                            "text": full_text,
-                            "location": f"{filename}:p[{p_idx}]",
-                            "type": "body"
-                        })
+                        segments.append(
+                            {
+                                "text": full_text,
+                                "location": f"{filename}:p[{p_idx}]",
+                                "type": "body",
+                            }
+                        )
             except ET.ParseError:
                 pass
 
@@ -377,10 +455,10 @@ _BOX_CHARS = set("┌┐└┘│├┤─┬┴┼╔╗╚╝║╠╣═╦�
 
 # Regex to extract Japanese text tokens from diagram lines
 _JP_TOKEN_RE = re.compile(
-    r'([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF10-\uFF19'
-    r'\uFF21-\uFF5A\uFF65-\uFF9F]+'
-    r'(?:[\s\u3000]*[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF'
-    r'\uFF10-\uFF19\uFF21-\uFF5A\uFF65-\uFF9F]+)*)'
+    r"([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF10-\uFF19"
+    r"\uFF21-\uFF5A\uFF65-\uFF9F]+"
+    r"(?:[\s\u3000]*[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF"
+    r"\uFF10-\uFF19\uFF21-\uFF5A\uFF65-\uFF9F]+)*)"
 )
 
 
@@ -422,11 +500,13 @@ def _extract_diagram_tokens(line: str, line_idx: int) -> list[dict]:
     for token in tokens:
         token = token.strip()
         if token and has_source_language(token, settings.SOURCE_LANG):
-            segments.append({
-                "text": token,
-                "location": f"line[{line_idx}]",
-                "type": "diagram_token",
-            })
+            segments.append(
+                {
+                    "text": token,
+                    "location": f"line[{line_idx}]",
+                    "type": "diagram_token",
+                }
+            )
     return segments
 
 
@@ -505,25 +585,29 @@ def extract_plaintext(file_path: str) -> list[dict]:
         if stripped.startswith("|") and stripped.endswith("|"):
             inner = stripped[1:-1]
             # Skip separator rows like |---|---|
-            if re.match(r'^[\s\-:|]+$', inner):
+            if re.match(r"^[\s\-:|]+$", inner):
                 continue
             cells = inner.split("|")
             for cell_idx, cell in enumerate(cells):
                 cell_text = cell.strip()
                 if cell_text and _is_translatable(cell_text):
-                    segments.append({
-                        "text": cell_text,
-                        "location": f"line[{i}]",
-                        "type": "table_cell",
-                        "cell_index": cell_idx,
-                    })
+                    segments.append(
+                        {
+                            "text": cell_text,
+                            "location": f"line[{i}]",
+                            "type": "table_cell",
+                            "cell_index": cell_idx,
+                        }
+                    )
             continue
 
-        segments.append({
-            "text": stripped,
-            "location": f"line[{i}]",
-            "type": "body",
-        })
+        segments.append(
+            {
+                "text": stripped,
+                "location": f"line[{i}]",
+                "type": "body",
+            }
+        )
 
     # Note: we do NOT dedup plaintext segments because
     # the reconstructor uses line-index-based replacement

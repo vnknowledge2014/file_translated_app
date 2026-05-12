@@ -2,7 +2,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 pydantic==2.9.2
-surrealdb==0.3.2
+surrealdb==2.0.0
 httpx==0.27.0
 
 # Document processing (Native Zip XML Parsing implemented)
@@ -17,14 +17,18 @@ aiofiles==24.1.0
 pyyaml==6.0.2
 chardet==5.2.0
 python-multipart==0.0.12
-websockets>=10.4
+websockets>=13.0
+minio==7.2.5
 
-# Auth
+# Auth (wallet-only)
 PyJWT>=2.8.0
-passlib[bcrypt]>=1.7.4
-bcrypt>=4.0,<5.0  # passlib is incompatible with bcrypt 5.x
+PyNaCl>=1.5.0
+base58>=2.1.0
 
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
 pytest-cov==5.0.0
+fast-langdetect>=0.2.0
+msoffcrypto-tool==6.0.0
+pyzipper==0.3.6

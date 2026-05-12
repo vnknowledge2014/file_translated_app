@@ -5,11 +5,24 @@ Supports multilingual glossaries with configurable source/target language pairs.
 
 import csv
 from io import StringIO
-from fastapi import APIRouter, File, Request, UploadFile, HTTPException, Form, Query, Depends
+from fastapi import (
+    APIRouter,
+    File,
+    Request,
+    UploadFile,
+    HTTPException,
+    Form,
+    Query,
+    Depends,
+)
 
 from app.auth import get_current_user
 from app.config import settings
-from app.database import get_all_glossary_terms, add_glossary_terms, delete_glossary_term
+from app.database import (
+    get_all_glossary_terms,
+    add_glossary_terms,
+    delete_glossary_term,
+)
 from app.languages import list_languages
 
 router = APIRouter()
@@ -28,7 +41,9 @@ async def get_glossary(
     tl = target_lang or settings.TARGET_LANG
     dom = domain or settings.DEFAULT_DOMAIN
 
-    terms = await get_all_glossary_terms(source_lang=sl, target_lang=tl, domain=dom, owner_id=current_user.get("id"))
+    terms = await get_all_glossary_terms(
+        source_lang=sl, target_lang=tl, domain=dom, owner_id=current_user.get("id")
+    )
     return {
         "source_lang": sl,
         "target_lang": tl,
@@ -74,10 +89,10 @@ async def upload_glossary(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload a CSV file containing glossary terms.
-    
+
     Expected CSV columns (header row is optional but recommended):
     source_text, target_text, context (optional)
-    
+
     Also accepts legacy format: jp, vi, context
     """
     sl = source_lang or settings.SOURCE_LANG
@@ -87,50 +102,75 @@ async def upload_glossary(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are supported.")
 
-    content = await file.read()
+    # Limit to 5MB to prevent memory exhaustion
+    MAX_CSV_SIZE = 5 * 1024 * 1024
+    content = bytearray()
+    chunk_size = 64 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > MAX_CSV_SIZE:
+            raise HTTPException(status_code=413, detail="Glossary file too large. Maximum 5MB.")
+    content = bytes(content)
     try:
         text_content = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         try:
             text_content = content.decode("shift_jis")
         except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="File must be UTF-8 or Shift-JIS encoded.")
+            raise HTTPException(
+                status_code=400, detail="File must be UTF-8 or Shift-JIS encoded."
+            )
 
     f = StringIO(text_content)
     reader = csv.reader(f)
-    
+
     terms = []
     headers_skipped = False
-    
+
     for row in reader:
         if not row or not any(row):
             continue
-            
+
         # Try to detect and skip header row
         if not headers_skipped and len(row) >= 2:
             first_lower = row[0].strip().lower()
             header_keywords = {
-                "jp", "japanese", "tiếng nhật", "nguồn", "source",
-                "source_text", "原文", "원문", "source text",
+                "jp",
+                "japanese",
+                "tiếng nhật",
+                "nguồn",
+                "source",
+                "source_text",
+                "原文",
+                "원문",
+                "source text",
             }
             if first_lower in header_keywords:
                 headers_skipped = True
                 continue
             headers_skipped = True
-            
+
         if len(row) >= 2:
-            terms.append({
-                "source_text": row[0],
-                "target_text": row[1],
-                "context": row[2] if len(row) > 2 else "",
-            })
+            terms.append(
+                {
+                    "source_text": row[0],
+                    "target_text": row[1],
+                    "context": row[2] if len(row) > 2 else "",
+                }
+            )
 
     if not terms:
         raise HTTPException(status_code=400, detail="No valid terms found in CSV.")
 
     added = await add_glossary_terms(
-        terms, replace=replace,
-        source_lang=sl, target_lang=tl, domain=dom,
+        terms,
+        replace=replace,
+        source_lang=sl,
+        target_lang=tl,
+        domain=dom,
         owner_id=current_user.get("id"),
     )
     return {
@@ -144,10 +184,11 @@ async def upload_glossary(
 
 
 @router.delete("/glossary/{term_id}")
-async def delete_term(request: Request, term_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a specific glossary term."""
-    # In a full RBAC setup, we should check if the term belongs to the user.
-    success = await delete_glossary_term(term_id)
+async def delete_term(
+    request: Request, term_id: str, current_user: dict = Depends(get_current_user)
+):
+    """Delete a specific glossary term (owner-verified)."""
+    success = await delete_glossary_term(term_id, owner_id=current_user.get("id"))
     if not success:
-        raise HTTPException(status_code=404, detail="Term not found")
+        raise HTTPException(status_code=404, detail="Term not found or not owned by you")
     return {"status": "success"}

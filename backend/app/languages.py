@@ -6,7 +6,7 @@ spacing rules, sentence boundaries, and encoding support.
 
 Usage:
     from app.languages import get_language, get_language_name, SUPPORTED_LANGUAGES
-    
+
     profile = get_language("ja")
     print(profile.name)         # "Japanese"
     print(profile.has_spaces)   # False
@@ -34,6 +34,7 @@ class LanguageProfile:
         example_terms: Example source→target pairs for prompt engineering.
         flag_emoji: Flag emoji for UI display.
     """
+
     code: str
     name: str
     native_name: str
@@ -55,13 +56,13 @@ JAPANESE = LanguageProfile(
     script="cjk",
     has_spaces=False,
     char_ranges=(
-        (0x3040, 0x309F),   # Hiragana
-        (0x30A0, 0x30FF),   # Katakana
-        (0x4E00, 0x9FFF),   # CJK Unified Ideographs
-        (0x3400, 0x4DBF),   # CJK Extension A
-        (0xFF10, 0xFF19),   # Fullwidth digits
-        (0xFF21, 0xFF5A),   # Fullwidth latin
-        (0xFF65, 0xFF9F),   # Halfwidth katakana
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+        (0x3400, 0x4DBF),  # CJK Extension A
+        (0xFF10, 0xFF19),  # Fullwidth digits
+        (0xFF21, 0xFF5A),  # Fullwidth latin
+        (0xFF65, 0xFF9F),  # Halfwidth katakana
     ),
     encodings=("utf-8", "shift_jis", "euc-jp", "cp932", "iso-2022-jp"),
     sentence_enders="。！？",
@@ -94,10 +95,10 @@ CHINESE_SIMPLIFIED = LanguageProfile(
     script="cjk",
     has_spaces=False,
     char_ranges=(
-        (0x4E00, 0x9FFF),   # CJK Unified Ideographs
-        (0x3400, 0x4DBF),   # CJK Extension A
-        (0x20000, 0x2A6DF), # CJK Extension B
-        (0x3000, 0x303F),   # CJK Symbols and Punctuation
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+        (0x3400, 0x4DBF),  # CJK Extension A
+        (0x20000, 0x2A6DF),  # CJK Extension B
+        (0x3000, 0x303F),  # CJK Symbols and Punctuation
     ),
     encodings=("utf-8", "gb2312", "gbk", "gb18030"),
     sentence_enders="。！？",
@@ -130,9 +131,9 @@ KOREAN = LanguageProfile(
     script="hangul",
     has_spaces=True,
     char_ranges=(
-        (0xAC00, 0xD7AF),   # Hangul Syllables
-        (0x1100, 0x11FF),   # Hangul Jamo
-        (0x3130, 0x318F),   # Hangul Compatibility Jamo
+        (0xAC00, 0xD7AF),  # Hangul Syllables
+        (0x1100, 0x11FF),  # Hangul Jamo
+        (0x3130, 0x318F),  # Hangul Compatibility Jamo
     ),
     encodings=("utf-8", "euc-kr", "cp949"),
     sentence_enders=".!?。",
@@ -147,8 +148,8 @@ ENGLISH = LanguageProfile(
     script="latin",
     has_spaces=True,
     char_ranges=(
-        (0x0041, 0x005A),   # A-Z
-        (0x0061, 0x007A),   # a-z
+        (0x0041, 0x005A),  # A-Z
+        (0x0061, 0x007A),  # a-z
     ),
     encodings=("utf-8", "ascii", "latin-1"),
     sentence_enders=".!?",
@@ -163,8 +164,8 @@ FRENCH = LanguageProfile(
     script="latin",
     has_spaces=True,
     char_ranges=(
-        (0x00C0, 0x00FF),   # Latin-1 Supplement (À-ÿ)
-        (0x0152, 0x0153),   # Œ, œ
+        (0x00C0, 0x00FF),  # Latin-1 Supplement (À-ÿ)
+        (0x0152, 0x0153),  # Œ, œ
     ),
     encodings=("utf-8", "latin-1", "cp1252"),
     sentence_enders=".!?",
@@ -178,7 +179,7 @@ GERMAN = LanguageProfile(
     script="latin",
     has_spaces=True,
     char_ranges=(
-        (0x00C0, 0x00FF),   # Latin-1 Supplement (ä, ö, ü, ß)
+        (0x00C0, 0x00FF),  # Latin-1 Supplement (ä, ö, ü, ß)
     ),
     encodings=("utf-8", "latin-1", "cp1252"),
     sentence_enders=".!?",
@@ -192,9 +193,9 @@ SPANISH = LanguageProfile(
     script="latin",
     has_spaces=True,
     char_ranges=(
-        (0x00C0, 0x00FF),   # Latin-1 Supplement
-        (0x00D1, 0x00D1),   # Ñ
-        (0x00F1, 0x00F1),   # ñ
+        (0x00C0, 0x00FF),  # Latin-1 Supplement
+        (0x00D1, 0x00D1),  # Ñ
+        (0x00F1, 0x00F1),  # ñ
     ),
     encodings=("utf-8", "latin-1", "cp1252"),
     sentence_enders=".!?¡¿",
@@ -208,7 +209,7 @@ THAI = LanguageProfile(
     script="thai",
     has_spaces=False,
     char_ranges=(
-        (0x0E00, 0x0E7F),   # Thai block
+        (0x0E00, 0x0E7F),  # Thai block
     ),
     encodings=("utf-8", "cp874", "tis-620"),
     sentence_enders=".",
@@ -237,8 +238,8 @@ RUSSIAN = LanguageProfile(
     script="cyrillic",
     has_spaces=True,
     char_ranges=(
-        (0x0400, 0x04FF),   # Cyrillic
-        (0x0500, 0x052F),   # Cyrillic Supplement
+        (0x0400, 0x04FF),  # Cyrillic
+        (0x0500, 0x052F),  # Cyrillic Supplement
     ),
     encodings=("utf-8", "cp1251", "koi8-r"),
     sentence_enders=".!?",
@@ -251,9 +252,7 @@ PORTUGUESE = LanguageProfile(
     native_name="Português",
     script="latin",
     has_spaces=True,
-    char_ranges=(
-        (0x00C0, 0x00FF),
-    ),
+    char_ranges=((0x00C0, 0x00FF),),
     encodings=("utf-8", "latin-1", "cp1252"),
     sentence_enders=".!?",
     flag_emoji="🇵🇹",
@@ -266,10 +265,10 @@ ARABIC = LanguageProfile(
     script="arabic",
     has_spaces=True,
     char_ranges=(
-        (0x0600, 0x06FF),   # Arabic
-        (0x0750, 0x077F),   # Arabic Supplement
-        (0xFB50, 0xFDFF),   # Arabic Presentation Forms-A
-        (0xFE70, 0xFEFF),   # Arabic Presentation Forms-B
+        (0x0600, 0x06FF),  # Arabic
+        (0x0750, 0x077F),  # Arabic Supplement
+        (0xFB50, 0xFDFF),  # Arabic Presentation Forms-A
+        (0xFE70, 0xFEFF),  # Arabic Presentation Forms-B
     ),
     encodings=("utf-8", "cp1256"),
     sentence_enders=".!?。",
@@ -283,8 +282,8 @@ HINDI = LanguageProfile(
     script="devanagari",
     has_spaces=True,
     char_ranges=(
-        (0x0900, 0x097F),   # Devanagari
-        (0xA8E0, 0xA8FF),   # Devanagari Extended
+        (0x0900, 0x097F),  # Devanagari
+        (0xA8E0, 0xA8FF),  # Devanagari Extended
     ),
     encodings=("utf-8",),
     sentence_enders="।.!?",
@@ -303,9 +302,21 @@ def _register(*profiles: LanguageProfile) -> None:
 
 
 _register(
-    JAPANESE, VIETNAMESE, CHINESE_SIMPLIFIED, CHINESE_TRADITIONAL,
-    KOREAN, ENGLISH, FRENCH, GERMAN, SPANISH,
-    THAI, INDONESIAN, RUSSIAN, PORTUGUESE, ARABIC, HINDI,
+    JAPANESE,
+    VIETNAMESE,
+    CHINESE_SIMPLIFIED,
+    CHINESE_TRADITIONAL,
+    KOREAN,
+    ENGLISH,
+    FRENCH,
+    GERMAN,
+    SPANISH,
+    THAI,
+    INDONESIAN,
+    RUSSIAN,
+    PORTUGUESE,
+    ARABIC,
+    HINDI,
 )
 
 # Public API
@@ -351,8 +362,15 @@ def list_languages() -> list[dict]:
 
     Returns:
         List of dicts with code, name, native_name, flag_emoji.
+        Includes 'auto' as the first entry for Auto Detect.
     """
-    return [
+    auto_entry = {
+        "code": "auto",
+        "name": "Auto Detect",
+        "native_name": "Auto",
+        "flag": "",
+    }
+    langs = [
         {
             "code": p.code,
             "name": p.name,
@@ -361,3 +379,4 @@ def list_languages() -> list[dict]:
         }
         for p in sorted(_ALL_LANGUAGES.values(), key=lambda p: p.name)
     ]
+    return [auto_entry] + langs

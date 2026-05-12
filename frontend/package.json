@@ -23,6 +23,9 @@
 	"dependencies": {
 		"@inlang/paraglide-js": "^2.16.1",
 		"@inlang/paraglide-vite": "^1.4.0",
-		"@sveltejs/adapter-static": "^3.0.10"
+		"@solana/spl-token": "^0.4.12",
+		"@solana/web3.js": "^1.98.0",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"buffer": "^6.0.3"
 	}
 }

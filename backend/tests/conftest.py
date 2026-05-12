@@ -20,15 +20,14 @@ _mock_surreal_instance.close = AsyncMock()
 _mock_surreal_instance.create = AsyncMock(return_value=[{}])
 _mock_surreal_instance.select = AsyncMock(return_value=None)
 _mock_surreal_instance.merge = AsyncMock()
-_mock_surreal_instance.query = AsyncMock(return_value=[{"result": []}])
+_mock_surreal_instance.query = AsyncMock(return_value=[])
 _mock_surreal.Surreal = MagicMock(return_value=_mock_surreal_instance)
 sys.modules.setdefault("surrealdb", _mock_surreal)
 
-import os
 import pytest
 from datetime import timedelta
 
-from app.auth import create_access_token, get_password_hash
+from app.auth import create_access_token
 
 
 # ── Test Users ──
@@ -36,7 +35,7 @@ from app.auth import create_access_token, get_password_hash
 TEST_USER_A = {
     "id": "user:userA_001",
     "username": "alice",
-    "hashed_password": get_password_hash("alice_pass"),
+    "wallet_address": "ALicE111111111111111111111111111111111111111",
     "role": "user",
     "is_active": True,
 }
@@ -44,7 +43,7 @@ TEST_USER_A = {
 TEST_USER_B = {
     "id": "user:userB_002",
     "username": "bob",
-    "hashed_password": get_password_hash("bob_pass"),
+    "wallet_address": "B0Bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "role": "user",
     "is_active": True,
 }
@@ -75,7 +74,9 @@ def token_b():
 @pytest.fixture
 def expired_token():
     """Expired JWT token."""
-    return create_access_token(data={"sub": "alice"}, expires_delta=timedelta(seconds=-10))
+    return create_access_token(
+        data={"sub": "alice"}, expires_delta=timedelta(seconds=-10)
+    )
 
 
 @pytest.fixture
@@ -92,25 +93,16 @@ def auth_headers_b(token_b):
 
 @pytest.fixture
 def tmp_dirs(tmp_path):
-    """Create temp upload/output/temp directories and patch settings."""
-    upload = tmp_path / "uploads"
-    upload.mkdir()
-    output = tmp_path / "output"
-    output.mkdir()
+    """Create temp directory and patch settings."""
     temp = tmp_path / "temp"
     temp.mkdir()
 
     from app.config import settings
-    orig_upload = settings.UPLOAD_DIR
-    orig_output = settings.OUTPUT_DIR
+
     orig_temp = settings.TEMP_DIR
 
-    settings.UPLOAD_DIR = str(upload)
-    settings.OUTPUT_DIR = str(output)
     settings.TEMP_DIR = str(temp)
 
-    yield {"upload": str(upload), "output": str(output), "temp": str(temp)}
+    yield {"temp": str(temp)}
 
-    settings.UPLOAD_DIR = orig_upload
-    settings.OUTPUT_DIR = orig_output
     settings.TEMP_DIR = orig_temp

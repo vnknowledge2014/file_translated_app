@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import re
 
-from app.config import settings
 from app.utils.language_detect import has_source_language
 
 _TAG_RE = re.compile(r"</?tag\d+/?>")
 
 
-def score_segment(seg: dict, domain_code: str = "general", source_lang: str = "ja") -> float:
+def score_segment(
+    seg: dict, domain_code: str = "general", source_lang: str = "ja"
+) -> float:
     """Calculate confidence score for a translated segment.
 
     Signals:
@@ -41,17 +42,18 @@ def score_segment(seg: dict, domain_code: str = "general", source_lang: str = "j
     # Signal 1: Source Language Leak (smart — ignores preserved English terms)
     target_clean = _TAG_RE.sub("", target)
     source_clean = _TAG_RE.sub("", source)
-    
+
     from app.utils.language_detect import analyze_segment
+
     source_analysis = analyze_segment(source_clean, domain_code=domain_code)
-    
+
     # Remove preserved terms from target before checking for leak
     target_for_leak_check = target_clean
     if source_analysis.get("preserve_terms"):
         for term in source_analysis["preserve_terms"]:
             # Simple replace is safe enough for confidence scoring heuristics
             target_for_leak_check = target_for_leak_check.replace(term, "")
-            
+
     if has_source_language(target_for_leak_check, source_lang):
         score -= 0.5
 

@@ -12,10 +12,12 @@ def mock_ollama_client():
     """Mock OllamaClient for unit testing."""
     client = AsyncMock()
     client.generate = AsyncMock(return_value="ok")
-    client.list_models = AsyncMock(return_value=[
-        {"name": "gemma4:e4b"},
-        {"name": "translategemma:4b"},
-    ])
+    client.list_models = AsyncMock(
+        return_value=[
+            {"name": "gemma4:e4b"},
+            {"name": "translategemma:4b"},
+        ]
+    )
     return client
 
 

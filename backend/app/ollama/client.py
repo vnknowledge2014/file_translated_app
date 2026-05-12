@@ -47,8 +47,12 @@ class OllamaClient(LLMClient):
         prompt: str,
         system: str | None = None,
         images: list[str] | None = None,
-        temperature: float = 0.3,
+        temperature: float = 0.7,
         num_ctx: int = 8192,
+        think: bool | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        repeat_penalty: float | None = None,
     ) -> str:
         """Generate text completion.
 
@@ -59,6 +63,9 @@ class OllamaClient(LLMClient):
             images: Optional list of base64-encoded images (vision mode).
             temperature: Sampling temperature.
             num_ctx: Context window size.
+            top_k: Top-K sampling parameter.
+            top_p: Top-P (nucleus) sampling parameter.
+            repeat_penalty: Repetition penalty factor.
 
         Returns:
             Generated text response.
@@ -68,15 +75,25 @@ class OllamaClient(LLMClient):
             OllamaTimeoutError: Request timed out.
             OllamaModelError: Model not found.
         """
+        options: dict = {
+            "temperature": temperature,
+            "num_ctx": num_ctx,
+        }
+        if top_k is not None:
+            options["top_k"] = top_k
+        if top_p is not None:
+            options["top_p"] = top_p
+        if repeat_penalty is not None:
+            options["repeat_penalty"] = repeat_penalty
+
         payload: dict = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_ctx": num_ctx,
-            },
+            "options": options,
         }
+        if think is not None:
+            payload["think"] = think
         if system:
             payload["system"] = system
         if images:
@@ -106,11 +123,11 @@ class OllamaClient(LLMClient):
 
     async def generate_embedding(self, model: str, prompt: str) -> list[float]:
         """Generate vector embedding for text.
-        
+
         Args:
             model: Embedding model name.
             prompt: Text to embed.
-            
+
         Returns:
             List of floats.
         """
@@ -127,9 +144,13 @@ class OllamaClient(LLMClient):
             data = response.json()
             return data.get("embedding", [])
         except httpx.ConnectError as e:
-            raise OllamaConnectionError(f"Cannot connect to Ollama at {self.base_url}: {e}") from e
+            raise OllamaConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}: {e}"
+            ) from e
         except httpx.TimeoutException as e:
-            raise OllamaTimeoutError(f"Request timed out after {self.timeout}s: {e}") from e
+            raise OllamaTimeoutError(
+                f"Request timed out after {self.timeout}s: {e}"
+            ) from e
         except httpx.HTTPStatusError as e:
             raise OllamaError(f"HTTP error: {e}") from e
 

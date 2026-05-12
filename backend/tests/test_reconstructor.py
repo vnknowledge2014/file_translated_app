@@ -1,6 +1,5 @@
 """Tests for deterministic document reconstruction."""
 
-import json
 import os
 import tempfile
 
@@ -187,7 +186,11 @@ class TestReconstructXlsx:
 
             segments = [
                 {"text": "テスト", "translated_text": "Kiểm tra"},
-                {"text": "API作成_スケジュール", "translated_text": "Lịch trình tạo API", "type": "sheet_name"},
+                {
+                    "text": "API作成_スケジュール",
+                    "translated_text": "Lịch trình tạo API",
+                    "type": "sheet_name",
+                },
             ]
             out = os.path.join(tmpdir, "test_vi.xlsx")
             reconstruct_xlsx(src, segments, out)
@@ -201,7 +204,6 @@ class TestReconstructPptx:
     def test_basic_replacement(self):
         """Test PPTX text frame replacement."""
         from pptx import Presentation
-        from pptx.util import Inches
 
         with tempfile.TemporaryDirectory() as tmpdir:
             prs = Presentation()
@@ -235,8 +237,16 @@ class TestReconstructPlaintext:
                 f.write("テスト\n")
 
             segments = [
-                {"text": "日本語テキスト", "translated_text": "Văn bản tiếng Nhật", "location": "line[0]"},
-                {"text": "テスト", "translated_text": "Kiểm tra", "location": "line[2]"},
+                {
+                    "text": "日本語テキスト",
+                    "translated_text": "Văn bản tiếng Nhật",
+                    "location": "line[0]",
+                },
+                {
+                    "text": "テスト",
+                    "translated_text": "Kiểm tra",
+                    "location": "line[2]",
+                },
             ]
             out = os.path.join(tmpdir, "test_vi.txt")
             reconstruct_plaintext(src, segments, out)
@@ -255,8 +265,16 @@ class TestReconstructPlaintext:
                 f.write("- 項目一\n")
 
             segments = [
-                {"text": "## タイトル", "translated_text": "Tiêu đề", "location": "line[0]"},
-                {"text": "- 項目一", "translated_text": "Mục một", "location": "line[1]"},
+                {
+                    "text": "## タイトル",
+                    "translated_text": "Tiêu đề",
+                    "location": "line[0]",
+                },
+                {
+                    "text": "- 項目一",
+                    "translated_text": "Mục một",
+                    "location": "line[1]",
+                },
             ]
             out = os.path.join(tmpdir, "test_vi.md")
             reconstruct_plaintext(src, segments, out)
@@ -278,8 +296,18 @@ class TestReconstructPlaintext:
                 f.write("```\n")
 
             segments = [
-                {"text": "サービス", "translated_text": "Dịch vụ", "location": "line[2]", "type": "diagram_token"},
-                {"text": "ナレッジ", "translated_text": "Kiến thức", "location": "line[2]", "type": "diagram_token"},
+                {
+                    "text": "サービス",
+                    "translated_text": "Dịch vụ",
+                    "location": "line[2]",
+                    "type": "diagram_token",
+                },
+                {
+                    "text": "ナレッジ",
+                    "translated_text": "Kiến thức",
+                    "location": "line[2]",
+                    "type": "diagram_token",
+                },
             ]
             out = os.path.join(tmpdir, "diag_vi.md")
             reconstruct_plaintext(src, segments, out)

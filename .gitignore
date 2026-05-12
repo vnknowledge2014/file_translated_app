@@ -6,6 +6,17 @@ venv/
 
 # Environment config (local overrides — .env.example is committed)
 .env
+.env.*
+!.env.example
+
+# Docker overrides
+docker-compose.override.yml
+
+# IDE & Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # Python
 __pycache__/
